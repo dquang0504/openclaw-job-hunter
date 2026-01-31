@@ -1,0 +1,32 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+.cookies/
+
+# Logs
+logs/
+*.log
+
+# Temp & Cache
+.tmp/
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Playwright
+playwright-report/
+test-results/
+screenshots/

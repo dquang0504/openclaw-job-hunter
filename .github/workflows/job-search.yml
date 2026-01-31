@@ -1,0 +1,51 @@
+# Job Search Automation - Runs every 4 hours
+name: Job Search
+
+on:
+  schedule:
+    # Runs every 4 hours: 8am, 12pm, 4pm, 8pm, 12am (UTC+7)
+    # Convert to UTC: subtract 7 hours
+    - cron: '0 1,5,9,13,17,21 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  search-jobs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # Auto-kill if stuck
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          npm ci || npm install
+          npx playwright install chromium --with-deps
+      
+      - name: Create cookies directory
+        run: mkdir -p .cookies logs .tmp/screenshots
+      
+      - name: Load cookies from secrets
+        run: |
+          echo '${{ secrets.COOKIES_TOPCV }}' > .cookies/cookies-topcv.json
+          echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
+      
+      - name: Run job search
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node execution/job-search.js
+      
+      - name: Upload logs (optional)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: job-search-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 7

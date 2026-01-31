@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenClaw Job Search Automation
+After=network.target
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/home/azureuser/openclaw-automation
+ExecStart=/usr/bin/node execution/job-search.js
+StandardOutput=append:/home/azureuser/openclaw-automation/logs/job-search.log
+StandardError=append:/home/azureuser/openclaw-automation/logs/job-search-error.log
+
+[Install]
+WantedBy=multi-user.target
