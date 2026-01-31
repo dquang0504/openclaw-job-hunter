@@ -105,57 +105,84 @@ class TelegramReporter {
 }
 
 // =============================================================================
-// GEMINI AI JOB FILTER
+// GEMINI AI JOB FILTER (BATCH MODE - Single API call for all tweets)
 // =============================================================================
 
 /**
- * Use Gemini AI to validate if a post is a real job posting
- * Returns: { isJob: boolean, score: number (1-10), reason: string }
+ * Batch validate multiple tweets with ONE Gemini API call
+ * Input: Array of { id, text } objects
+ * Returns: Map<id, { isJob, score, reason }>
  */
-async function validateJobWithAI(text) {
-    if (!genAI) {
-        // Fallback: use simple regex validation
-        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position)\b/i;
-        const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking)\b/i;
+async function batchValidateJobsWithAI(tweets) {
+    const results = new Map();
+
+    // Fallback function using regex
+    const regexValidate = (text) => {
+        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now)\b/i;
+        const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking|can't hate|first guy)\b/i;
         const isJob = hiringPatterns.test(text) && !personalPatterns.test(text);
-        return { isJob, score: isJob ? 7 : 0, reason: 'regex fallback' };
+        return { isJob, score: isJob ? 7 : 3, reason: 'regex' };
+    };
+
+    // If no AI, use regex for all
+    if (!genAI) {
+        console.log('  🔧 Using regex validation (no AI key)');
+        for (const t of tweets) {
+            results.set(t.id, regexValidate(t.text));
+        }
+        return results;
     }
 
     try {
         const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-        const prompt = `Analyze this tweet and determine if it's a REAL JOB POSTING (someone hiring), not someone looking for a job.
+        // Build batch prompt
+        const tweetList = tweets.map((t, i) => `[${i}] "${t.text.slice(0, 200)}"`).join('\n\n');
 
-Tweet: "${text.slice(0, 500)}"
+        const prompt = `Analyze these ${tweets.length} tweets. For EACH, determine if it's a REAL JOB POSTING (company hiring) or NOT (personal, question, sharing).
 
-Respond with ONLY valid JSON (no markdown):
-{"isJob": true/false, "score": 1-10, "reason": "brief reason"}
+${tweetList}
+
+Respond with ONLY a JSON array (no markdown, no explanation):
+[{"id": 0, "isJob": true/false, "score": 1-10, "reason": "brief"}]
 
 Score guide:
-- 9-10: Clear job posting with company name and role
-- 7-8: Likely job posting (hiring language)
-- 4-6: Unclear, might be job-related
-- 1-3: Not a job posting (personal, question, sharing)`;
+- 8-10: Clear job posting (company hiring, has role)
+- 5-7: Likely job-related
+- 1-4: NOT a job (personal seeking, question, sharing)`;
 
+        console.log('  🤖 Sending batch to Gemini AI...');
         const result = await model.generateContent(prompt);
         const response = result.response.text().trim();
 
-        // Parse JSON response (handle markdown code blocks)
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        // Parse JSON array response
+        const jsonMatch = response.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            return {
-                isJob: parsed.isJob === true,
-                score: Math.min(10, Math.max(1, parseInt(parsed.score) || 5)),
-                reason: parsed.reason || 'AI analyzed'
-            };
+            for (const item of parsed) {
+                const idx = parseInt(item.id);
+                if (idx >= 0 && idx < tweets.length) {
+                    results.set(tweets[idx].id, {
+                        isJob: item.isJob === true,
+                        score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
+                        reason: item.reason || 'AI'
+                    });
+                }
+            }
+            console.log(`  ✅ AI processed ${results.size} tweets`);
         }
     } catch (error) {
-        console.log('⚠️ AI validation failed, using regex fallback:', error.message);
+        console.log('⚠️ AI batch failed, using regex:', error.message.slice(0, 100));
     }
 
-    // Fallback on error
-    return { isJob: true, score: 5, reason: 'AI error, fallback' };
+    // Fill in any missing with regex fallback
+    for (const t of tweets) {
+        if (!results.has(t.id)) {
+            results.set(t.id, regexValidate(t.text));
+        }
+    }
+
+    return results;
 }
 
 // =============================================================================
@@ -334,55 +361,65 @@ async function scrapeTwitter(page, reporter) {
         // Quick scroll once
         await humanScroll(page);
 
-        const tweets = await page.locator('[data-testid="tweet"]').all();
-        console.log(`  📦 Found ${tweets.length} tweets`);
+        const tweetElements = await page.locator('[data-testid="tweet"]').all();
+        console.log(`  📦 Found ${tweetElements.length} tweets`);
 
-        // Use AI for validation if available, otherwise regex fallback
-        const useAI = !!genAI;
-        console.log(`  🤖 Using ${useAI ? 'Gemini AI' : 'regex'} for job validation`);
-
-        for (const tweet of tweets.slice(0, 15)) { // Check first 15, filter down
+        // STEP 1: Collect all tweet data first
+        const tweetData = [];
+        for (let i = 0; i < Math.min(tweetElements.length, 10); i++) {
             try {
-                const text = await tweet.locator('[data-testid="tweetText"]').textContent();
+                const tweet = tweetElements[i];
+                const text = await tweet.locator('[data-testid="tweetText"]').textContent().catch(() => null);
+                if (!text) continue;
 
-                // Validate with AI or regex
-                const validation = await validateJobWithAI(text);
-
-                if (!validation.isJob || validation.score < 6) {
-                    console.log(`    ❌ Skipped (score: ${validation.score}): ${text.slice(0, 40)}...`);
-                    continue;
-                }
-
-                const authorHandle = await tweet.locator('[data-testid="User-Name"] a').first().getAttribute('href');
-                const tweetLink = await tweet.locator('a[href*="/status/"]').first().getAttribute('href');
-
-                // Extract date from tweet
+                const authorHandle = await tweet.locator('[data-testid="User-Name"] a').first().getAttribute('href').catch(() => null);
+                const tweetLink = await tweet.locator('a[href*="/status/"]').first().getAttribute('href').catch(() => null);
                 const timeEl = await tweet.locator('time').first();
                 const dateTime = await timeEl.getAttribute('datetime').catch(() => null);
-                const postedDate = dateTime ? new Date(dateTime).toLocaleDateString('vi-VN') : 'N/A';
 
-                // Extract job-like info
-                const job = {
-                    title: text?.slice(0, 100)?.trim() + '...',
-                    company: authorHandle?.replace('/', '') || 'Twitter Post',
-                    url: tweetLink ? `https://x.com${tweetLink}` : 'https://x.com',
-                    description: text,
-                    location: 'Remote/Global',
-                    source: 'X (Twitter)',
-                    techStack: 'Go/Golang',
-                    postedDate: postedDate,
-                    matchScore: validation.score,  // Use AI score
-                    aiReason: validation.reason
-                };
-
-                jobs.push(job);
-                console.log(`    ✅ [${validation.score}/10] ${job.title.slice(0, 40)}...`);
-
-                // Limit to 5 jobs
-                if (jobs.length >= 5) break;
+                tweetData.push({
+                    id: i,
+                    text,
+                    authorHandle,
+                    tweetLink,
+                    postedDate: dateTime ? new Date(dateTime).toLocaleDateString('vi-VN') : 'N/A'
+                });
             } catch (e) {
-                // Skip malformed tweets
+                // Skip malformed
             }
+        }
+
+        console.log(`  📝 Collected ${tweetData.length} tweets for validation`);
+
+        // STEP 2: Batch validate with AI (SINGLE API CALL!)
+        const validationResults = await batchValidateJobsWithAI(tweetData);
+
+        // STEP 3: Build job list from validated tweets
+        for (const t of tweetData) {
+            const validation = validationResults.get(t.id) || { isJob: false, score: 0 };
+
+            if (!validation.isJob || validation.score < 6) {
+                console.log(`    ❌ [${validation.score}] ${t.text.slice(0, 35)}...`);
+                continue;
+            }
+
+            const job = {
+                title: t.text?.slice(0, 100)?.trim() + '...',
+                company: t.authorHandle?.replace('/', '') || 'Twitter Post',
+                url: t.tweetLink ? `https://x.com${t.tweetLink}` : 'https://x.com',
+                description: t.text,
+                location: 'Remote/Global',
+                source: 'X (Twitter)',
+                techStack: 'Go/Golang',
+                postedDate: t.postedDate,
+                matchScore: validation.score,
+                aiReason: validation.reason
+            };
+
+            jobs.push(job);
+            console.log(`    ✅ [${validation.score}/10] ${job.title.slice(0, 35)}...`);
+
+            if (jobs.length >= 5) break;
         }
     } catch (error) {
         console.error('Error searching Twitter:', error.message);
