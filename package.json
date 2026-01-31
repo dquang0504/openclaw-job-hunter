@@ -9,10 +9,15 @@
     "search:topcv": "node execution/job-search.js --platform=topcv",
     "search:twitter": "node execution/job-search.js --platform=twitter"
   },
-  "keywords": ["job-search", "automation", "golang"],
+  "keywords": [
+    "job-search",
+    "automation",
+    "golang"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "dotenv": "^16.3.1",
     "node-telegram-bot-api": "^0.64.0",
     "playwright": "^1.41.0"

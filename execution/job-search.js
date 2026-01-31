@@ -12,8 +12,12 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
 const TelegramBot = require('node-telegram-bot-api');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
+
+// Initialize Gemini AI (optional - will fallback to regex if no API key)
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
 // =============================================================================
 // CONFIGURATION
@@ -98,6 +102,60 @@ class TelegramReporter {
     escapeMarkdown(text) {
         return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
     }
+}
+
+// =============================================================================
+// GEMINI AI JOB FILTER
+// =============================================================================
+
+/**
+ * Use Gemini AI to validate if a post is a real job posting
+ * Returns: { isJob: boolean, score: number (1-10), reason: string }
+ */
+async function validateJobWithAI(text) {
+    if (!genAI) {
+        // Fallback: use simple regex validation
+        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position)\b/i;
+        const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking)\b/i;
+        const isJob = hiringPatterns.test(text) && !personalPatterns.test(text);
+        return { isJob, score: isJob ? 7 : 0, reason: 'regex fallback' };
+    }
+
+    try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+        const prompt = `Analyze this tweet and determine if it's a REAL JOB POSTING (someone hiring), not someone looking for a job.
+
+Tweet: "${text.slice(0, 500)}"
+
+Respond with ONLY valid JSON (no markdown):
+{"isJob": true/false, "score": 1-10, "reason": "brief reason"}
+
+Score guide:
+- 9-10: Clear job posting with company name and role
+- 7-8: Likely job posting (hiring language)
+- 4-6: Unclear, might be job-related
+- 1-3: Not a job posting (personal, question, sharing)`;
+
+        const result = await model.generateContent(prompt);
+        const response = result.response.text().trim();
+
+        // Parse JSON response (handle markdown code blocks)
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                isJob: parsed.isJob === true,
+                score: Math.min(10, Math.max(1, parseInt(parsed.score) || 5)),
+                reason: parsed.reason || 'AI analyzed'
+            };
+        }
+    } catch (error) {
+        console.log('⚠️ AI validation failed, using regex fallback:', error.message);
+    }
+
+    // Fallback on error
+    return { isJob: true, score: 5, reason: 'AI error, fallback' };
 }
 
 // =============================================================================
@@ -279,15 +337,19 @@ async function scrapeTwitter(page, reporter) {
         const tweets = await page.locator('[data-testid="tweet"]').all();
         console.log(`  📦 Found ${tweets.length} tweets`);
 
-        // Job-related keywords - must have at least one
-        const jobKeywords = /\b(hiring|job|position|opening|vacancy|career|recruit|intern|developer|engineer|looking for|we're hiring|join us|apply)\b/i;
+        // Use AI for validation if available, otherwise regex fallback
+        const useAI = !!genAI;
+        console.log(`  🤖 Using ${useAI ? 'Gemini AI' : 'regex'} for job validation`);
 
-        for (const tweet of tweets.slice(0, 10)) { // Check first 10, filter down
+        for (const tweet of tweets.slice(0, 15)) { // Check first 15, filter down
             try {
                 const text = await tweet.locator('[data-testid="tweetText"]').textContent();
 
-                // Skip if not a job post (must contain job-related keywords)
-                if (!jobKeywords.test(text)) {
+                // Validate with AI or regex
+                const validation = await validateJobWithAI(text);
+
+                if (!validation.isJob || validation.score < 6) {
+                    console.log(`    ❌ Skipped (score: ${validation.score}): ${text.slice(0, 40)}...`);
                     continue;
                 }
 
@@ -308,17 +370,16 @@ async function scrapeTwitter(page, reporter) {
                     location: 'Remote/Global',
                     source: 'X (Twitter)',
                     techStack: 'Go/Golang',
-                    postedDate: postedDate
+                    postedDate: postedDate,
+                    matchScore: validation.score,  // Use AI score
+                    aiReason: validation.reason
                 };
 
-                if (shouldIncludeJob(job)) {
-                    job.matchScore = calculateMatchScore(job);
-                    jobs.push(job);
-                    console.log(`    ✅ ${job.title.slice(0, 50)}...`);
+                jobs.push(job);
+                console.log(`    ✅ [${validation.score}/10] ${job.title.slice(0, 40)}...`);
 
-                    // Limit to 5 jobs
-                    if (jobs.length >= 5) break;
-                }
+                // Limit to 5 jobs
+                if (jobs.length >= 5) break;
             } catch (e) {
                 // Skip malformed tweets
             }
