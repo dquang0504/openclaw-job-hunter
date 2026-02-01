@@ -26,7 +26,19 @@ async function batchValidateJobsWithAI(jobs) {
     // Regex fallback function
     const regexValidate = (job) => {
         const text = `${job.title} ${job.description || ''} ${job.company || ''}`.toLowerCase();
+        const source = (job.source || '').toLowerCase();
 
+        // LinkedIn posts - already filtered by scraper, trust the score
+        if (source.includes('linkedin')) {
+            // Jobs already passed scraper filter with score 8 - trust them
+            return {
+                isValid: true,
+                score: job.matchScore || 8,
+                reason: 'linkedin-pre-filtered'
+            };
+        }
+
+        // Twitter/TopCV - strict golang requirement
         const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now|hiring!|new.+job|remote job|looking for|we need|developer needed)\b/i;
         const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking|can't hate|first guy|if you're a)\b/i;
         const golangPatterns = /\b(golang|go\s*developer|go\s*backend|go\s*engineer|go\s*programming)\b/i;
