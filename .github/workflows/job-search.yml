@@ -35,6 +35,7 @@ jobs:
         run: |
           echo '${{ secrets.COOKIES_TOPCV }}' > .cookies/cookies-topcv.json
           echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
+          echo '${{ secrets.COOKIES_LINKEDIN }}' > .cookies/cookies-linkedin.json
       
       # Restore seen-jobs cache to avoid duplicate notifications
       - name: Restore seen jobs cache
