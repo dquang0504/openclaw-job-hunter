@@ -1,13 +1,11 @@
 /**
- * LinkedIn Posts Scraper - Guest Mode Only (No Login/No Cookies)
- * 
- * OPTIMIZED: Uses Posts search instead of Jobs filter for broader coverage
+ * LinkedIn Posts Scraper - Authenticated Mode with Human-like Behavior
  * 
  * Features:
- * - Searches LinkedIn Posts (not Jobs) for hiring-related content
- * - Filters: Latest match, Past 24 hours
- * - No login required - eliminates account ban risk
- * - Advanced stealth measures for anti-detection
+ * - Uses cookies for authenticated access
+ * - Searches Posts (not Jobs) with Latest filter
+ * - Human-like interactions: smooth scroll, mouse jiggle, thinking delays
+ * - Stealth measures to avoid detection
  */
 
 const CONFIG = require('../config');
@@ -16,182 +14,188 @@ const {
     thinkingDelay,
     smoothScroll,
     mouseJiggle,
+    humanType,
     getRandomUserAgent,
     applyStealthSettings
 } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
 
-// LinkedIn Posts Search URL (not Jobs)
-// sortBy=date_posted = Latest match
-// datePosted="past-24h" = Past 24 hours
-const LINKEDIN_POSTS_SEARCH_URL = 'https://www.linkedin.com/search/results/content/';
+// LinkedIn Content Search URL - Posts filter, Latest sort
+const LINKEDIN_SEARCH_URL = 'https://www.linkedin.com/search/results/content/';
 
 /**
- * Build LinkedIn Posts search URL with parameters
+ * Build LinkedIn Posts search URL
+ * sortBy=date_posted = Latest
  */
-function buildLinkedInPostsUrl(keyword) {
+function buildSearchUrl(keyword) {
     const params = new URLSearchParams({
-        keywords: `${keyword} hiring`,
-        datePosted: '"past-24h"',
-        sortBy: '"date_posted"',  // Latest match
+        keywords: keyword,
+        sortBy: '"date_posted"',  // Latest
         origin: 'FACETED_SEARCH'
     });
-    return `${LINKEDIN_POSTS_SEARCH_URL}?${params.toString()}`;
+    return `${LINKEDIN_SEARCH_URL}?${params.toString()}`;
 }
 
 /**
- * Alternative: LinkedIn Feed search (public, no login)
- */
-function buildLinkedInGuestSearchUrl(keyword) {
-    // Guest-friendly search - uses the public feed search
-    return `https://www.linkedin.com/feed/hashtag/?keywords=${encodeURIComponent(keyword)}hiring`;
-}
-
-/**
- * Scrape posts from LinkedIn in Guest Mode
- * Uses Posts search for broader job-related content coverage
+ * Scrape LinkedIn Posts with human-like behavior
  */
 async function scrapeLinkedIn(page, reporter) {
-    console.log('💼 Searching LinkedIn Posts (Guest Mode)...');
-    console.log('  🔒 No login required - searching public posts');
-    console.log('  📅 Filter: Latest match, Past 24 hours');
+    console.log('💼 Searching LinkedIn Posts (Authenticated)...');
+    console.log('  🔐 Using cookies for login');
+    console.log('  📅 Filter: Posts + Latest');
 
     const jobs = [];
 
     // Apply stealth settings
     await applyStealthSettings(page);
 
-    // Search keywords - combined with "hiring" for better results
+    // Search keywords for Golang jobs
     const searchKeywords = [
-        'golang developer',
-        'go backend',
-        'golang fresher',
-        'golang remote'
+        'golang developer hiring',
+        'go backend developer job',
+        'golang remote job'
     ];
 
     for (const keyword of searchKeywords) {
         try {
-            // Try Posts search first (may require login wall bypass)
-            const searchUrl = buildLinkedInPostsUrl(keyword);
-            console.log(`  🔍 Searching posts: "${keyword} hiring"`);
+            console.log(`\n  🔍 Searching: "${keyword}"`);
 
+            // === HUMAN-LIKE: Navigate with natural delay ===
+            const searchUrl = buildSearchUrl(keyword);
             await page.goto(searchUrl, {
                 waitUntil: 'domcontentloaded',
                 timeout: 30000
             });
 
-            // Human-like thinking delay (2-7 seconds)
+            // === HUMAN-LIKE: Thinking delay (2-5s) ===
             await thinkingDelay();
+
+            // === HUMAN-LIKE: Move mouse naturally ===
             await mouseJiggle(page);
 
-            // Check for auth wall - if hit, try guest hashtag search
-            const hasAuthWall = await page.locator('.authwall-join-form, [data-tracking-control-name="public_jobs_nav-header-join"], .join-form').count();
-
-            if (hasAuthWall > 0) {
-                console.log('  ⚠️ Auth wall detected, trying guest hashtag search...');
-
-                // Fallback to hashtag search (more guest-friendly)
-                const hashtagUrl = `https://www.linkedin.com/feed/hashtag/${encodeURIComponent(keyword.replace(/\s+/g, ''))}`;
-                await page.goto(hashtagUrl, {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 20000
-                }).catch(() => { });
-
-                await thinkingDelay();
-            }
-
-            // Smooth scroll to load more content
-            await smoothScroll(page, 800);
-            await thinkingDelay();
-            await smoothScroll(page, 600);
-            await mouseJiggle(page);
-
-            // Extract posts - look for various post card selectors
-            const postSelectors = [
-                '.feed-shared-update-v2',   // Feed posts
-                '.update-components-text',   // Post text
-                '[data-urn]',               // Any element with URN
-                '.occludable-update',        // Occludable posts
-                'article',                   // Generic articles
-                '.scaffold-finite-scroll__content > div',  // Scroll content
-                '.search-results__list > div'  // Search results
-            ];
-
-            let posts = [];
-            for (const selector of postSelectors) {
-                posts = await page.locator(selector).all();
-                if (posts.length > 0) {
-                    console.log(`  📦 Found ${posts.length} posts with selector: ${selector.slice(0, 30)}`);
-                    break;
-                }
-            }
-
-            if (posts.length === 0) {
-                // Try to get any visible text content
-                const bodyText = await page.locator('body').textContent().catch(() => '');
-                const hasJobContent = /hiring|job|golang|developer/i.test(bodyText);
-                console.log(`  📝 Page has job-related content: ${hasJobContent}`);
+            // Check if still logged in
+            const profileIcon = await page.locator('.global-nav__me, .feed-identity-module').count();
+            if (profileIcon === 0) {
+                console.log('  ⚠️ Not logged in - cookies may be expired');
+                await reporter.sendStatus('⚠️ LinkedIn cookies expired - please update');
                 continue;
             }
 
-            for (const post of posts.slice(0, 6)) { // Limit posts
-                try {
-                    // Extract post content
-                    let postText = await post.locator('.update-components-text, .feed-shared-text, span[dir="ltr"]').first().textContent().catch(() => null);
+            console.log('  ✅ Logged in successfully');
 
-                    if (!postText) {
+            // === HUMAN-LIKE: Wait for content to load naturally ===
+            await page.waitForSelector('.search-results__list, .feed-shared-update-v2, .update-components-actor', {
+                timeout: 15000
+            }).catch(() => { });
+
+            // === HUMAN-LIKE: Scroll like reading ===
+            await smoothScroll(page, 300);
+            await randomDelay(1000, 2000);
+
+            await mouseJiggle(page);
+
+            await smoothScroll(page, 400);
+            await randomDelay(800, 1500);
+
+            // === HUMAN-LIKE: Another scroll with pause ===
+            await thinkingDelay();
+            await smoothScroll(page, 350);
+
+            // Find post cards
+            const postCards = await page.locator('.feed-shared-update-v2, .update-components-actor__container, [data-urn*="update"]').all();
+            console.log(`  📦 Found ${postCards.length} posts`);
+
+            // Process posts with delays
+            for (let i = 0; i < Math.min(postCards.length, 8); i++) {
+                const post = postCards[i];
+
+                try {
+                    // === HUMAN-LIKE: Small delay between reading each post ===
+                    await randomDelay(200, 500);
+
+                    // Try multiple selectors to extract post text
+                    let postText = null;
+                    const textSelectors = [
+                        '.feed-shared-update-v2__description',
+                        '.update-components-text',
+                        '.break-words span',
+                        'span[dir="ltr"]',
+                        '.feed-shared-text'
+                    ];
+
+                    for (const sel of textSelectors) {
+                        postText = await post.locator(sel).first().textContent().catch(() => null);
+                        if (postText && postText.trim().length > 30) break;
+                    }
+
+                    // Fallback: get all visible text
+                    if (!postText || postText.trim().length < 30) {
                         postText = await post.textContent().catch(() => '');
                     }
 
-                    if (!postText || postText.trim().length < 20) continue;
+                    if (!postText || postText.trim().length < 30) continue;
+                    postText = postText.trim().slice(0, 500);
 
-                    // Check for job-related keywords
+                    // Check for job-related content
                     const textLower = postText.toLowerCase();
-                    const isHiringPost = /\b(hiring|job|opening|position|looking for|we need|remote|developer|engineer|golang|go backend)\b/i.test(textLower);
+                    const isJobPost = /\b(hiring|job|opening|position|looking for|developer|engineer|remote|work from home|we need|đang tuyển)\b/i.test(textLower);
 
-                    if (!isHiringPost) continue;
+                    if (!isJobPost) continue;
 
-                    // Extract author/company
-                    let author = await post.locator('.update-components-actor__name, .feed-shared-actor__name, a[data-tracking-control-name]').first().textContent().catch(() => 'LinkedIn Post');
-
-                    // Get post link
-                    let postUrl = await post.locator('a[href*="/posts/"], a[href*="/feed/update/"]').first().getAttribute('href').catch(() => null);
-                    if (!postUrl) {
-                        postUrl = await post.locator('a').first().getAttribute('href').catch(() => 'https://linkedin.com');
+                    // Extract author
+                    let author = await post.locator('.update-components-actor__name span, .feed-shared-actor__name').first().textContent().catch(() => null);
+                    if (!author) {
+                        author = await post.locator('a[href*="/in/"]').first().textContent().catch(() => 'LinkedIn User');
                     }
 
+                    // Get post URL - try multiple patterns
+                    let postUrl = null;
+                    const urlSelectors = [
+                        'a[href*="/posts/"]',
+                        'a[href*="/feed/update/"]',
+                        '.update-components-actor__sub-description a'
+                    ];
+                    for (const sel of urlSelectors) {
+                        postUrl = await post.locator(sel).first().getAttribute('href').catch(() => null);
+                        if (postUrl) break;
+                    }
+
+                    if (!postUrl) {
+                        postUrl = 'https://linkedin.com/feed';
+                    }
+
+                    // Build job object
                     const job = {
-                        title: postText.trim().slice(0, 100) + '...',
-                        company: author?.trim()?.slice(0, 50) || 'LinkedIn Post',
+                        title: postText.slice(0, 100) + '...',
+                        description: postText.slice(0, 300),
+                        company: author?.trim()?.slice(0, 50) || 'LinkedIn User',
                         url: postUrl?.startsWith('http') ? postUrl : `https://linkedin.com${postUrl}`,
-                        description: postText.trim().slice(0, 300),
                         location: 'Remote/Global',
                         source: 'LinkedIn (Posts)',
                         techStack: 'Go/Golang',
-                        postedDate: new Date().toLocaleDateString('vi-VN')  // Past 24h filter
+                        postedDate: new Date().toLocaleDateString('vi-VN')
                     };
 
-                    // Score the job
-                    const jobText = `${job.title} ${job.company} ${job.description}`.toLowerCase();
-                    if (!CONFIG.excludeRegex.test(jobText)) {
-                        job.matchScore = calculateMatchScore(job);
+                    // Calculate match score
+                    const hasGolang = /\b(golang|go\s*developer|go\s*backend|go\s*engineer)\b/i.test(textLower);
+                    const hasHiring = /\b(hiring|job|opening|position|looking for|we need)\b/i.test(textLower);
 
-                        // Boost score for direct hiring mentions
-                        if (/\b(we('re|\ are) hiring|hiring now|job opening)\b/i.test(jobText)) {
-                            job.matchScore = Math.min(10, job.matchScore + 2);
-                        }
+                    job.matchScore = 5;
+                    if (hasGolang) job.matchScore += 3;
+                    if (hasHiring) job.matchScore += 2;
 
+                    if (!CONFIG.excludeRegex?.test(textLower)) {
                         jobs.push(job);
-                        console.log(`    ✅ [${job.matchScore}] ${job.title.slice(0, 40)}...`);
+                        console.log(`    ✅ [${job.matchScore}] ${job.company.slice(0, 25)} - ${job.title.slice(0, 40)}...`);
                     }
                 } catch (e) {
                     // Skip malformed posts
                 }
-
-                await randomDelay(100, 300);
             }
 
-            await randomDelay(2000, 4000);
+            // === HUMAN-LIKE: Delay between searches ===
+            await randomDelay(3000, 6000);
+            await mouseJiggle(page);
 
         } catch (error) {
             console.error(`  ❌ Error searching "${keyword}":`, error.message);
@@ -200,13 +204,13 @@ async function scrapeLinkedIn(page, reporter) {
 
     // Remove duplicates
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-    console.log(`  📊 LinkedIn Posts: Found ${uniqueJobs.length} unique posts`);
+    console.log(`\n  📊 LinkedIn Posts: Found ${uniqueJobs.length} unique job-related posts`);
 
     return uniqueJobs;
 }
 
 /**
- * Create a fresh browser context for LinkedIn (no persistence)
+ * Create LinkedIn context with cookies
  */
 async function createLinkedInContext(browser) {
     const userAgent = getRandomUserAgent();
@@ -220,7 +224,6 @@ async function createLinkedInContext(browser) {
         },
         locale: 'en-US',
         timezoneId: 'Asia/Ho_Chi_Minh',
-        storageState: undefined,  // Fresh guest identity
         screen: { width: 1920, height: 1080 },
         extraHTTPHeaders: {
             'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8'
