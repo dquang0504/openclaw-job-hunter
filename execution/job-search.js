@@ -1,11 +1,12 @@
 /**
  * OpenClaw Job Search Automation
- * Main orchestration file - imports all modules
+ * Main orchestration file
  * 
- * Platforms:
- * - TopCV.vn (with cookies)
- * - X/Twitter (with cookies)
- * - LinkedIn (Guest Mode - no cookies/login required)
+ * Flow:
+ * 1. Scrape all platforms (TopCV, Twitter, LinkedIn)
+ * 2. Collect ALL raw jobs
+ * 3. ONE batch AI validation call for all jobs (G4F)
+ * 4. Filter, deduplicate, and send to Telegram
  */
 
 require('dotenv').config();
@@ -18,6 +19,10 @@ const CONFIG = require('./config');
 const TelegramReporter = require('./lib/telegram');
 const { loadSeenJobs, saveSeenJobs } = require('./lib/deduplication');
 const { randomDelay, getRandomUserAgent, applyStealthSettings } = require('./lib/stealth');
+const { batchValidateJobsWithAI } = require('./lib/ai-filter');
+const { calculateMatchScore } = require('./lib/filters');
+
+// Import scrapers
 const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
 const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
@@ -31,8 +36,9 @@ async function main() {
     const isDryRun = args.includes('--dry-run');
     const platformArg = args.find(a => a.startsWith('--platform='));
     const platform = platformArg ? platformArg.split('=')[1] : 'all';
+    const skipAI = args.includes('--no-ai');
 
-    console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platform})`);
+    console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platform}, AI: ${!skipAI})`);
 
     // Ensure directories exist
     for (const dir of Object.values(CONFIG.paths)) {
@@ -49,17 +55,18 @@ async function main() {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
-    // Regular context for TopCV and Twitter (with cookies)
+    // Regular context for TopCV and Twitter
     const context = await browser.newContext({
         userAgent: getRandomUserAgent(),
         viewport: { width: 1366, height: 768 },
         locale: 'vi-VN'
     });
 
-    // Load cookies for TopCV and Twitter
+    // Load cookies
     const cookieFiles = {
         topcv: path.join(CONFIG.paths.cookies, 'cookies-topcv.json'),
-        twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json')
+        twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json'),
+        linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json')  // NEW: LinkedIn cookies
     };
 
     for (const [name, file] of Object.entries(cookieFiles)) {
@@ -75,60 +82,103 @@ async function main() {
     }
 
     const page = await context.newPage();
-    let allJobs = [];
+    let allRawJobs = [];  // Raw jobs before AI validation
 
     try {
+        // =====================================================================
+        // STEP 1: SCRAPE ALL PLATFORMS (collect raw jobs)
+        // =====================================================================
+
         // Scrape TopCV
         if (platform === 'all' || platform === 'topcv') {
             const topcvJobs = await scrapeTopCV(page, reporter);
-            allJobs = allJobs.concat(topcvJobs);
+            allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
         }
 
         // Scrape Twitter
         if (platform === 'all' || platform === 'twitter') {
             const twitterJobs = await scrapeTwitter(page, reporter);
-            allJobs = allJobs.concat(twitterJobs);
+            allRawJobs = allRawJobs.concat(twitterJobs.map((j, i) => ({ ...j, id: `twitter-${i}` })));
         }
 
-        // Scrape LinkedIn (Guest Mode - separate context, no cookies)
+        // Scrape LinkedIn
         if (platform === 'all' || platform === 'linkedin') {
-            console.log('\n🔒 Starting LinkedIn Guest Mode (no login/cookies)...');
+            console.log('\n🔒 Starting LinkedIn scraper...');
 
-            // Create fresh context for LinkedIn - no persistence
-            const linkedInContext = await createLinkedInContext(browser);
-            const linkedInPage = await linkedInContext.newPage();
+            // Check if LinkedIn cookies exist for authenticated mode
+            const hasLinkedInCookies = fs.existsSync(cookieFiles.linkedin);
 
-            // Apply stealth settings
-            await applyStealthSettings(linkedInPage);
+            if (hasLinkedInCookies) {
+                console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
+                // Use main context with LinkedIn cookies
+                const linkedInJobs = await scrapeLinkedIn(page, reporter);
+                allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+            } else {
+                console.log('  🔓 No LinkedIn cookies - using Guest Mode');
+                // Create fresh context for Guest Mode
+                const linkedInContext = await createLinkedInContext(browser);
+                const linkedInPage = await linkedInContext.newPage();
+                await applyStealthSettings(linkedInPage);
 
-            try {
-                const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
-                allJobs = allJobs.concat(linkedInJobs);
-            } finally {
-                // Clear all session data - ensures fresh guest identity next run
-                await linkedInContext.clearCookies();
-                await linkedInContext.close();
-                console.log('  🧹 LinkedIn context cleared (fresh guest identity)');
+                try {
+                    const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
+                    allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+                } finally {
+                    await linkedInContext.clearCookies();
+                    await linkedInContext.close();
+                    console.log('  🧹 LinkedIn guest context cleared');
+                }
             }
         }
 
-        // Sort by match score
-        allJobs.sort((a, b) => b.matchScore - a.matchScore);
+        console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
 
-        // Deduplication
+        // =====================================================================
+        // STEP 2: UNIFIED AI VALIDATION (ONE batch call for ALL jobs)
+        // =====================================================================
+
+        let validatedJobs = allRawJobs;
+
+        if (!skipAI && allRawJobs.length > 0) {
+            const aiResults = await batchValidateJobsWithAI(allRawJobs);
+
+            // Apply AI scores to jobs
+            validatedJobs = allRawJobs.map(job => {
+                const result = aiResults.get(job.id);
+                if (result) {
+                    return {
+                        ...job,
+                        matchScore: result.score,
+                        aiReason: result.reason,
+                        aiValidated: result.isValid
+                    };
+                }
+                return { ...job, matchScore: calculateMatchScore(job), aiValidated: true };
+            });
+
+            // Filter only valid jobs
+            validatedJobs = validatedJobs.filter(job => job.aiValidated && job.matchScore >= 5);
+        }
+
+        // Sort by match score
+        validatedJobs.sort((a, b) => b.matchScore - a.matchScore);
+
+        // =====================================================================
+        // STEP 3: DEDUPLICATION & SEND TO TELEGRAM
+        // =====================================================================
+
         const seenJobs = loadSeenJobs();
-        const newJobs = allJobs.filter(job => !seenJobs.has(job.url));
-        console.log(`\n📊 Found ${allJobs.length} jobs total, ${newJobs.length} are NEW`);
+        const newJobs = validatedJobs.filter(job => !seenJobs.has(job.url));
+        console.log(`\n📊 Found ${validatedJobs.length} valid jobs, ${newJobs.length} are NEW`);
 
         if (newJobs.length === 0) {
             console.log('ℹ️ No new jobs found - all have been seen before');
         } else {
-            // Report top 5 NEW jobs only
             const jobsToSend = newJobs.slice(0, 5);
             const sentUrls = [];
 
             for (const job of jobsToSend) {
-                console.log(`  [${job.matchScore}/10] ${job.title} @ ${job.company}`);
+                console.log(`  [${job.matchScore}/10] ${job.title?.slice(0, 50)} @ ${job.company}`);
 
                 if (!isDryRun) {
                     await reporter.sendJobReport(job);
@@ -137,12 +187,11 @@ async function main() {
                 sentUrls.push(job.url);
             }
 
-            // Save newly sent jobs
             if (!isDryRun && sentUrls.length > 0) {
                 saveSeenJobs(sentUrls);
             }
 
-            await reporter.sendStatus(`✅ Tìm được ${allJobs.length} jobs (${newJobs.length} mới), đã gửi ${jobsToSend.length} jobs mới.`);
+            await reporter.sendStatus(`✅ Tìm được ${validatedJobs.length} jobs (${newJobs.length} mới), đã gửi ${jobsToSend.length} jobs mới.`);
         }
 
     } catch (error) {
@@ -152,12 +201,12 @@ async function main() {
         await browser.close();
     }
 
-    // Save results to log
+    // Save results
     const logFile = path.join(CONFIG.paths.logs, `job-search-${new Date().toISOString().split('T')[0]}.json`);
     if (!fs.existsSync(CONFIG.paths.logs)) {
         fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
     }
-    fs.writeFileSync(logFile, JSON.stringify(allJobs, null, 2));
+    fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
     console.log(`\n📁 Results saved to ${logFile}`);
 }
 
