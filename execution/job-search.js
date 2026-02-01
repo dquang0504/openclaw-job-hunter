@@ -310,10 +310,10 @@ async function scrapeTopCV(page, reporter) {
 
     const jobs = [];
 
-    // TopCV search keywords - limit to 1-2 for speed
-    const searchTerms = ['golang', 'go developer'];
+    // Use all keywords from CONFIG
+    console.log(`  🔍 Searching with ${CONFIG.keywords.length} keywords...`);
 
-    for (const keyword of searchTerms) {
+    for (const keyword of CONFIG.keywords) {
         try {
             // Correct TopCV search URL format with query parameter
             const searchUrl = `https://www.topcv.vn/tim-viec-lam-it?keyword=${encodeURIComponent(keyword)}`;
@@ -396,7 +396,12 @@ async function scrapeTwitter(page, reporter) {
     console.log('🐦 Searching X (Twitter)...');
 
     const jobs = [];
-    const searchQuery = 'golang job OR "go developer" job (fresher OR junior OR intern) -senior';
+
+    // Build search query from CONFIG keywords
+    // Take first 3 keywords for Twitter to avoid query too long
+    const keywordPart = CONFIG.keywords.slice(0, 3).map(k => `"${k}"`).join(' OR ');
+    const searchQuery = `(${keywordPart}) (job OR hiring) (fresher OR junior OR intern) -senior -5년`;
+    console.log(`  🔍 Query: ${searchQuery.slice(0, 60)}...`);
 
     try {
         await page.goto(`https://x.com/search?q=${encodeURIComponent(searchQuery)}&f=live`,
@@ -556,7 +561,7 @@ async function main() {
 
         if (newJobs.length === 0) {
             console.log('ℹ️ No new jobs found - all have been seen before');
-            await reporter.sendStatus('ℹ️ Không có jobs mới. Tất cả đã được gửi trước đó.');
+            // Don't send notification when no new jobs to avoid spam
         } else {
             // Report top 5 NEW jobs only
             const jobsToSend = newJobs.slice(0, 5);
