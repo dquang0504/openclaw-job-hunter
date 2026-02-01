@@ -52,7 +52,8 @@ const CONFIG = {
     paths: {
         cookies: path.join(__dirname, '..', '.cookies'),
         logs: path.join(__dirname, '..', 'logs'),
-        screenshots: path.join(__dirname, '..', '.tmp', 'screenshots')
+        screenshots: path.join(__dirname, '..', '.tmp', 'screenshots'),
+        seenJobs: path.join(__dirname, '..', 'logs', 'seen-jobs.json')
     }
 };
 
@@ -183,6 +184,60 @@ Score guide:
     }
 
     return results;
+}
+
+// =============================================================================
+// SEEN JOBS TRACKER (Deduplication)
+// =============================================================================
+
+/**
+ * Load previously seen job URLs from file
+ * Returns: Set of job URLs that have been sent before
+ */
+function loadSeenJobs() {
+    try {
+        if (fs.existsSync(CONFIG.paths.seenJobs)) {
+            const data = JSON.parse(fs.readFileSync(CONFIG.paths.seenJobs, 'utf-8'));
+            // Filter out entries older than 30 days
+            const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+            const validEntries = data.filter(entry => entry.timestamp > thirtyDaysAgo);
+            console.log(`📋 Loaded ${validEntries.length} previously seen jobs`);
+            return new Set(validEntries.map(e => e.url));
+        }
+    } catch (e) {
+        console.log('⚠️ Could not load seen jobs:', e.message);
+    }
+    return new Set();
+}
+
+/**
+ * Save seen job URLs to file for future runs
+ */
+function saveSeenJobs(seenUrls) {
+    try {
+        // Load existing and merge
+        let existingData = [];
+        if (fs.existsSync(CONFIG.paths.seenJobs)) {
+            existingData = JSON.parse(fs.readFileSync(CONFIG.paths.seenJobs, 'utf-8'));
+        }
+
+        // Add new entries with timestamp
+        const now = Date.now();
+        for (const url of seenUrls) {
+            if (!existingData.some(e => e.url === url)) {
+                existingData.push({ url, timestamp: now });
+            }
+        }
+
+        // Filter out entries older than 30 days
+        const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+        existingData = existingData.filter(e => e.timestamp > thirtyDaysAgo);
+
+        fs.writeFileSync(CONFIG.paths.seenJobs, JSON.stringify(existingData, null, 2));
+        console.log(`💾 Saved ${existingData.length} seen jobs to cache`);
+    } catch (e) {
+        console.log('⚠️ Could not save seen jobs:', e.message);
+    }
 }
 
 // =============================================================================
@@ -492,19 +547,38 @@ async function main() {
         // Sort by match score
         allJobs.sort((a, b) => b.matchScore - a.matchScore);
 
-        // Report top 5 jobs only
-        console.log(`\n📊 Found ${allJobs.length} matching jobs:`);
+        // Load previously seen jobs for deduplication
+        const seenJobs = loadSeenJobs();
 
-        for (const job of allJobs.slice(0, 5)) { // Top 5 only
-            console.log(`  [${job.matchScore}/10] ${job.title} @ ${job.company}`);
+        // Filter out already-seen jobs
+        const newJobs = allJobs.filter(job => !seenJobs.has(job.url));
+        console.log(`\n📊 Found ${allJobs.length} jobs total, ${newJobs.length} are NEW`);
 
-            if (!isDryRun) {
-                await reporter.sendJobReport(job);
-                await randomDelay(500, 1000); // Rate limit Telegram
+        if (newJobs.length === 0) {
+            console.log('ℹ️ No new jobs found - all have been seen before');
+            await reporter.sendStatus('ℹ️ Không có jobs mới. Tất cả đã được gửi trước đó.');
+        } else {
+            // Report top 5 NEW jobs only
+            const jobsToSend = newJobs.slice(0, 5);
+            const sentUrls = [];
+
+            for (const job of jobsToSend) {
+                console.log(`  [${job.matchScore}/10] ${job.title} @ ${job.company}`);
+
+                if (!isDryRun) {
+                    await reporter.sendJobReport(job);
+                    await randomDelay(500, 1000); // Rate limit Telegram
+                }
+                sentUrls.push(job.url);
             }
-        }
 
-        await reporter.sendStatus(`✅ Tìm được ${allJobs.length} jobs, đã gửi top ${Math.min(5, allJobs.length)}.`);
+            // Save newly sent jobs to seen list
+            if (!isDryRun && sentUrls.length > 0) {
+                saveSeenJobs(sentUrls);
+            }
+
+            await reporter.sendStatus(`✅ Tìm được ${allJobs.length} jobs (${newJobs.length} mới), đã gửi ${jobsToSend.length} jobs mới.`);
+        }
 
     } catch (error) {
         console.error('Fatal error:', error);

@@ -28,7 +28,7 @@ jobs:
           npm ci || npm install
           npx playwright install chromium --with-deps
       
-      - name: Create cookies directory
+      - name: Create directories
         run: mkdir -p .cookies logs .tmp/screenshots
       
       - name: Load cookies from secrets
@@ -36,12 +36,29 @@ jobs:
           echo '${{ secrets.COOKIES_TOPCV }}' > .cookies/cookies-topcv.json
           echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
       
+      # Restore seen-jobs cache to avoid duplicate notifications
+      - name: Restore seen jobs cache
+        uses: actions/cache@v4
+        with:
+          path: logs/seen-jobs.json
+          key: seen-jobs-${{ github.run_id }}
+          restore-keys: |
+            seen-jobs-
+      
       - name: Run job search
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: node execution/job-search.js
+      
+      # Save seen-jobs cache for next run
+      - name: Save seen jobs cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: logs/seen-jobs.json
+          key: seen-jobs-${{ github.run_id }}
       
       - name: Upload logs (optional)
         uses: actions/upload-artifact@v4
