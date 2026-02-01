@@ -93,19 +93,31 @@ async function scrapeLinkedIn(page, reporter) {
 
                     if (!jobMatch || !goMatch) continue;
 
+                    // Extract URN for correct URL
+                    const urn = await posts[i].getAttribute('data-urn').catch(() => null);
+                    const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}` : 'https://www.linkedin.com/feed';
+
                     // Extract author name (simplified)
                     const authorMatch = postText.match(/^([A-Za-z\s]{5,30})/);
                     const author = authorMatch ? authorMatch[1].trim() : 'LinkedIn User';
 
+                    // Try to extract time text (e.g., "1d •")
+                    const timeMatch = postText.match(/(\d+[hdmw]\s*•)/);
+                    const rawTime = timeMatch ? timeMatch[1].replace('•', '').trim() + ' ago' : 'Recently';
+
+                    // Try basic location extraction
+                    const locMatch = postText.match(/(?:location|📍)\s*:?\s*([^\n.,]+)/i);
+                    const rawLocation = locMatch ? locMatch[1].trim() : 'Remote/Global'; // Default to Remote if not found
+
                     jobs.push({
                         title: text.slice(0, 100) + '...',
-                        description: text.slice(0, 300),
+                        description: text.slice(0, 500), // Increased context for AI
                         company: author.slice(0, 40),
-                        url: 'https://linkedin.com/feed',
-                        location: 'Remote/Global',
+                        url: postUrl,
+                        location: rawLocation, // Use regex extracted or default
                         source: 'LinkedIn (Posts)',
                         techStack: 'Golang',
-                        postedDate: new Date().toLocaleDateString('vi-VN'),
+                        postedDate: rawTime,
                         matchScore: 8
                     });
 

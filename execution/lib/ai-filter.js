@@ -74,13 +74,15 @@ async function batchValidateJobsWithAI(jobs) {
             ).join('\n');
 
             const prompt = `Analyze these ${jobs.length} job posts. Determine if each is a REAL JOB POSTING (company hiring for Golang/Go developer) or NOT.
+Also extract key details (location, date posted if relative time in text, tech stack).
 
 ${jobList}
 
 Respond with JSON array ONLY:
-[{"id": 0, "isValid": true, "score": 7, "reason": "golang hiring"}]
+[{"id": 0, "isValid": true, "score": 7, "reason": "golang hiring", "location": "Remote", "postedDate": "2 days ago", "techStack": "Golang, Docker"}]
 
-Score: 8-10=clear job, 5-7=possible, 1-4=not a job`;
+Score: 8-10=clear job, 5-7=possible, 1-4=not a job.
+If location/date is missing, use "Unknown" or leave blank.`;
 
             const result = await gemini.generateContent(prompt);
             const responseText = result.response.text();
@@ -94,7 +96,10 @@ Score: 8-10=clear job, 5-7=possible, 1-4=not a job`;
                         results.set(jobs[idx].id, {
                             isValid: item.isValid === true,
                             score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
-                            reason: item.reason || 'AI'
+                            reason: item.reason || 'AI',
+                            location: item.location,    // AI extracted
+                            postedDate: item.postedDate, // AI extracted
+                            techStack: item.techStack    // AI extracted
                         });
                     }
                 }
@@ -122,8 +127,11 @@ Score: 8-10=clear job, 5-7=possible, 1-4=not a job`;
 
     // Summary
     const validCount = [...results.values()].filter(r => r.isValid).length;
-    const aiCount = [...results.values()].filter(r => r.reason !== 'regex').length;
-    console.log(`  📊 Result: ${validCount}/${jobs.length} valid (${aiCount} AI, ${jobs.length - aiCount} regex)`);
+    const aiCount = [...results.values()].filter(r => r.reason === 'AI' || r.reason.includes('Gemini')).length;
+    const trustedCount = [...results.values()].filter(r => r.reason === 'linkedin-pre-filtered').length;
+    const regexCount = [...results.values()].filter(r => r.reason === 'regex' || r.reason === 'linkedin-regex').length;
+
+    console.log(`  📊 Result: ${validCount}/${jobs.length} valid (AI: ${aiCount}, Trusted: ${trustedCount}, Regex: ${regexCount})`);
 
     return results;
 }

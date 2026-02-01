@@ -137,47 +137,68 @@ async function main() {
         console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
 
         // =====================================================================
-        // STEP 2: UNIFIED AI VALIDATION (ONE batch call for ALL jobs)
+        // STEP 2: DEDUPLICATION (Filter BEFORE AI to save tokens)
         // =====================================================================
 
-        let validatedJobs = allRawJobs;
+        const seenJobs = loadSeenJobs();
+        // Filter out jobs already seen
+        let unseenJobs = allRawJobs.filter(job => !seenJobs.has(job.url));
 
-        if (!skipAI && allRawJobs.length > 0) {
-            const aiResults = await batchValidateJobsWithAI(allRawJobs);
+        console.log(`\n🔍 Deduplication: ${allRawJobs.length} total -> ${unseenJobs.length} unseen jobs`);
+
+        if (unseenJobs.length === 0) {
+            console.log('ℹ️ No new unseen jobs to process.');
+            // Save logs even if no new jobs
+            const logFile = path.join(CONFIG.paths.logs, `job-search-${new Date().toISOString().split('T')[0]}.json`);
+            if (!fs.existsSync(CONFIG.paths.logs)) fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
+            fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
+            return;
+        }
+
+        // =====================================================================
+        // STEP 3: UNIFIED AI VALIDATION (Only for UNSEEN jobs)
+        // =====================================================================
+
+        let validatedNewJobs = unseenJobs;
+
+        if (!skipAI) {
+            const aiResults = await batchValidateJobsWithAI(unseenJobs);
 
             // Apply AI scores to jobs
-            validatedJobs = allRawJobs.map(job => {
+            validatedNewJobs = unseenJobs.map(job => {
                 const result = aiResults.get(job.id);
                 if (result) {
                     return {
                         ...job,
                         matchScore: result.score,
                         aiReason: result.reason,
-                        aiValidated: result.isValid
+                        aiValidated: result.isValid,
+                        // Override fields if AI provided them and they are better than default
+                        location: (result.location && result.location !== 'Unknown') ? result.location : job.location,
+                        postedDate: (result.postedDate && result.postedDate !== 'Unknown') ? result.postedDate : job.postedDate,
+                        techStack: result.techStack || job.techStack
                     };
                 }
                 return { ...job, matchScore: calculateMatchScore(job), aiValidated: true };
             });
 
             // Filter only valid jobs
-            validatedJobs = validatedJobs.filter(job => job.aiValidated && job.matchScore >= 5);
+            validatedNewJobs = validatedNewJobs.filter(job => job.aiValidated && job.matchScore >= 5);
         }
 
         // Sort by match score
-        validatedJobs.sort((a, b) => b.matchScore - a.matchScore);
+        validatedNewJobs.sort((a, b) => b.matchScore - a.matchScore);
 
         // =====================================================================
-        // STEP 3: DEDUPLICATION & SEND TO TELEGRAM
+        // STEP 4: SEND TO TELEGRAM
         // =====================================================================
 
-        const seenJobs = loadSeenJobs();
-        const newJobs = validatedJobs.filter(job => !seenJobs.has(job.url));
-        console.log(`\n📊 Found ${validatedJobs.length} valid jobs, ${newJobs.length} are NEW`);
+        console.log(`\n📊 Found ${validatedNewJobs.length} valid NEW jobs to send`);
 
-        if (newJobs.length === 0) {
-            console.log('ℹ️ No new jobs found - all have been seen before');
+        if (validatedNewJobs.length === 0) {
+            console.log('ℹ️ No valid new jobs found after AI validation');
         } else {
-            const jobsToSend = newJobs.slice(0, 5);
+            const jobsToSend = validatedNewJobs.slice(0, 5);
             const sentUrls = [];
 
             for (const job of jobsToSend) {
@@ -194,7 +215,7 @@ async function main() {
                 saveSeenJobs(sentUrls);
             }
 
-            await reporter.sendStatus(`✅ Tìm được ${validatedJobs.length} jobs (${newJobs.length} mới), đã gửi ${jobsToSend.length} jobs mới.`);
+            await reporter.sendStatus(`✅ Tìm được ${validatedNewJobs.length} jobs mới valid, đã gửi ${jobsToSend.length} jobs.`);
         }
 
     } catch (error) {
