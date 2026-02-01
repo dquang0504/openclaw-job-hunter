@@ -108,26 +108,29 @@ async function main() {
             // Check if LinkedIn cookies exist for authenticated mode
             const hasLinkedInCookies = fs.existsSync(cookieFiles.linkedin);
 
-            if (hasLinkedInCookies) {
-                console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
-                // Use main context with LinkedIn cookies
-                const linkedInJobs = await scrapeLinkedIn(page, reporter);
-                allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-            } else {
-                console.log('  🔓 No LinkedIn cookies - using Guest Mode');
-                // Create fresh context for Guest Mode
-                const linkedInContext = await createLinkedInContext(browser);
-                const linkedInPage = await linkedInContext.newPage();
+            // Always create separate context for LinkedIn
+            const linkedInContext = await createLinkedInContext(browser);
+            const linkedInPage = await linkedInContext.newPage();
+
+            try {
+                // Load cookies if available
+                if (hasLinkedInCookies) {
+                    console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
+                    const cookies = JSON.parse(fs.readFileSync(cookieFiles.linkedin, 'utf-8'));
+                    await linkedInContext.addCookies(cookies);
+                } else {
+                    console.log('  🔓 No LinkedIn cookies - using Guest Mode');
+                }
+
                 await applyStealthSettings(linkedInPage);
 
-                try {
-                    const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
-                    allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-                } finally {
-                    await linkedInContext.clearCookies();
-                    await linkedInContext.close();
-                    console.log('  🧹 LinkedIn guest context cleared');
-                }
+                const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
+                allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+            } catch (error) {
+                console.error('  ❌ LinkedIn scraper error:', error.message);
+            } finally {
+                await linkedInContext.close();
+                console.log('  🧹 LinkedIn context closed');
             }
         }
 

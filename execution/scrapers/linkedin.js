@@ -3,29 +3,29 @@
  * 
  * Features:
  * - Uses cookies for authenticated access
- * - Searches Posts (not Jobs) with Latest filter
- * - Human-like interactions: smooth scroll, mouse jiggle, thinking delays
- * - Stealth measures to avoid detection
+ * - Searches Posts with Latest filter
+ * - Human-like interactions (reduced delays for reliability)
  */
 
 const CONFIG = require('../config');
 const {
     randomDelay,
-    thinkingDelay,
-    smoothScroll,
-    mouseJiggle,
-    humanType,
     getRandomUserAgent,
     applyStealthSettings
 } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
 
 // LinkedIn Content Search URL - Posts filter, Latest sort
 const LINKEDIN_SEARCH_URL = 'https://www.linkedin.com/search/results/content/';
 
+// LinkedIn-specific keywords
+const LINKEDIN_KEYWORDS = [
+    'remote intern golang',
+    'fresher golang',
+    'entry level golang'
+];
+
 /**
  * Build LinkedIn Posts search URL
- * sortBy=date_posted = Latest
  */
 function buildSearchUrl(keyword) {
     const params = new URLSearchParams({
@@ -49,31 +49,21 @@ async function scrapeLinkedIn(page, reporter) {
     // Apply stealth settings
     await applyStealthSettings(page);
 
-    // Search keywords for Golang jobs
-    const searchKeywords = [
-        'golang developer hiring',
-        'go backend developer job',
-        'golang remote job'
-    ];
-
-    for (const keyword of searchKeywords) {
+    for (const keyword of LINKEDIN_KEYWORDS) {
         try {
             console.log(`\n  🔍 Searching: "${keyword}"`);
 
-            // === HUMAN-LIKE: Navigate with natural delay ===
+            // Navigate to search
             const searchUrl = buildSearchUrl(keyword);
             await page.goto(searchUrl, {
                 waitUntil: 'domcontentloaded',
                 timeout: 30000
             });
 
-            // === HUMAN-LIKE: Thinking delay (2-5s) ===
-            await thinkingDelay();
+            // Short delay after navigation
+            await randomDelay(2000, 3000);
 
-            // === HUMAN-LIKE: Move mouse naturally ===
-            await mouseJiggle(page);
-
-            // Check if still logged in
+            // Check if logged in
             const profileIcon = await page.locator('.global-nav__me, .feed-identity-module').count();
             if (profileIcon === 0) {
                 console.log('  ⚠️ Not logged in - cookies may be expired');
@@ -83,85 +73,48 @@ async function scrapeLinkedIn(page, reporter) {
 
             console.log('  ✅ Logged in successfully');
 
-            // === HUMAN-LIKE: Wait for content to load naturally ===
-            await page.waitForSelector('.search-results__list, .feed-shared-update-v2, .update-components-actor', {
-                timeout: 15000
+            // Wait for content
+            await page.waitForSelector('.feed-shared-update-v2, .update-components-actor, [data-urn]', {
+                timeout: 10000
             }).catch(() => { });
 
-            // === HUMAN-LIKE: Scroll like reading ===
-            await smoothScroll(page, 300);
-            await randomDelay(1000, 2000);
-
-            await mouseJiggle(page);
-
-            await smoothScroll(page, 400);
-            await randomDelay(800, 1500);
-
-            // === HUMAN-LIKE: Another scroll with pause ===
-            await thinkingDelay();
-            await smoothScroll(page, 350);
+            // Simple scroll to load content
+            await page.evaluate(() => window.scrollBy(0, 400));
+            await randomDelay(1000, 1500);
+            await page.evaluate(() => window.scrollBy(0, 300));
+            await randomDelay(500, 1000);
 
             // Find post cards
-            const postCards = await page.locator('.feed-shared-update-v2, .update-components-actor__container, [data-urn*="update"]').all();
+            const postCards = await page.locator('.feed-shared-update-v2, [data-urn*="update"]').all();
             console.log(`  📦 Found ${postCards.length} posts`);
 
-            // Process posts with delays
+            // Process posts
             for (let i = 0; i < Math.min(postCards.length, 8); i++) {
                 const post = postCards[i];
 
                 try {
-                    // === HUMAN-LIKE: Small delay between reading each post ===
-                    await randomDelay(200, 500);
+                    // Get all text content from post
+                    let postText = await post.textContent().catch(() => '');
 
-                    // Try multiple selectors to extract post text
-                    let postText = null;
-                    const textSelectors = [
-                        '.feed-shared-update-v2__description',
-                        '.update-components-text',
-                        '.break-words span',
-                        'span[dir="ltr"]',
-                        '.feed-shared-text'
-                    ];
-
-                    for (const sel of textSelectors) {
-                        postText = await post.locator(sel).first().textContent().catch(() => null);
-                        if (postText && postText.trim().length > 30) break;
-                    }
-
-                    // Fallback: get all visible text
-                    if (!postText || postText.trim().length < 30) {
-                        postText = await post.textContent().catch(() => '');
-                    }
-
-                    if (!postText || postText.trim().length < 30) continue;
+                    if (!postText || postText.trim().length < 50) continue;
                     postText = postText.trim().slice(0, 500);
 
                     // Check for job-related content
                     const textLower = postText.toLowerCase();
-                    const isJobPost = /\b(hiring|job|opening|position|looking for|developer|engineer|remote|work from home|we need|đang tuyển)\b/i.test(textLower);
+                    const isJobPost = /\b(hiring|job|opening|position|looking for|developer|engineer|remote|we need|đang tuyển|intern|fresher|entry level)\b/i.test(textLower);
 
                     if (!isJobPost) continue;
 
                     // Extract author
-                    let author = await post.locator('.update-components-actor__name span, .feed-shared-actor__name').first().textContent().catch(() => null);
+                    let author = await post.locator('.update-components-actor__name span').first().textContent().catch(() => null);
                     if (!author) {
                         author = await post.locator('a[href*="/in/"]').first().textContent().catch(() => 'LinkedIn User');
                     }
 
-                    // Get post URL - try multiple patterns
-                    let postUrl = null;
-                    const urlSelectors = [
-                        'a[href*="/posts/"]',
-                        'a[href*="/feed/update/"]',
-                        '.update-components-actor__sub-description a'
-                    ];
-                    for (const sel of urlSelectors) {
-                        postUrl = await post.locator(sel).first().getAttribute('href').catch(() => null);
-                        if (postUrl) break;
-                    }
-
+                    // Get post URL
+                    let postUrl = await post.locator('a[href*="/posts/"]').first().getAttribute('href').catch(() => null);
                     if (!postUrl) {
-                        postUrl = 'https://linkedin.com/feed';
+                        postUrl = await post.locator('a[href*="/feed/update/"]').first().getAttribute('href').catch(() => 'https://linkedin.com/feed');
                     }
 
                     // Build job object
@@ -193,9 +146,8 @@ async function scrapeLinkedIn(page, reporter) {
                 }
             }
 
-            // === HUMAN-LIKE: Delay between searches ===
-            await randomDelay(3000, 6000);
-            await mouseJiggle(page);
+            // Short delay between searches
+            await randomDelay(2000, 3000);
 
         } catch (error) {
             console.error(`  ❌ Error searching "${keyword}":`, error.message);
