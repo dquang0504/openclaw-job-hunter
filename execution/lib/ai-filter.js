@@ -1,32 +1,42 @@
 /**
- * AI Job Filter using G4F (gpt4free) via REST API
+ * AI Job Filter - Supports multiple providers with fallback
  * 
- * Features:
- * - Uses G4F API for free AI access (no API key required)
- * - Batch validation for all jobs from all platforms in ONE call
- * - Falls back to regex if G4F fails
+ * Priority:
+ * 1. Gemini (if GEMINI_API_KEY set) - free tier 15 req/min
+ * 2. Regex fallback (always works)
+ * 
+ * Note: G4F requires self-hosted Docker (api.g4f.dev unstable)
+ * To use G4F: docker run -p 1337:8080 hlohaus789/g4f:latest
+ * Then set G4F_API_URL=http://localhost:1337/v1
  */
 
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const CONFIG = require('../config');
 
-// G4F API endpoint - uses free providers
-const G4F_API_URL = 'https://api.g4f.dev/chat/completions';
+// Initialize Gemini if API key available
+const geminiApiKey = process.env.GEMINI_API_KEY;
+let gemini = null;
+if (geminiApiKey) {
+    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+}
+
+// G4F self-hosted API endpoint (if using Docker)
+const G4F_API_URL = process.env.G4F_API_URL || 'http://localhost:1337/v1';
 
 /**
- * Batch validate ALL jobs from ALL platforms with ONE G4F API call
- * @param {Array<{id: string, title: string, description: string, source: string}>} jobs
- * @returns {Map<string, {isValid: boolean, score: number, reason: string}>}
+ * Batch validate ALL jobs from ALL platforms with ONE API call
  */
 async function batchValidateJobsWithAI(jobs) {
     const results = new Map();
 
-    // Fallback function using regex
+    // Regex fallback function
     const regexValidate = (job) => {
         const text = `${job.title} ${job.description || ''} ${job.company || ''}`.toLowerCase();
 
-        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now|hiring!|new.+job|remote job|looking for|we need)\b/i;
+        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now|hiring!|new.+job|remote job|looking for|we need|developer needed)\b/i;
         const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking|can't hate|first guy|if you're a)\b/i;
-        const golangPatterns = /\b(golang|go\s+developer|go\s+backend|go\s+engineer)\b/i;
+        const golangPatterns = /\b(golang|go\s*developer|go\s*backend|go\s*engineer|go\s*programming)\b/i;
 
         const isHiring = hiringPatterns.test(text) && !personalPatterns.test(text);
         const hasGolang = golangPatterns.test(text);
@@ -43,101 +53,87 @@ async function batchValidateJobsWithAI(jobs) {
         };
     };
 
-    // If no jobs, return empty
     if (!jobs || jobs.length === 0) {
         return results;
     }
 
-    console.log(`\n🤖 AI Validation: Processing ${jobs.length} jobs from all platforms...`);
+    console.log(`\n🤖 AI Validation: Processing ${jobs.length} jobs...`);
 
-    try {
-        // Build batch prompt with all jobs
-        const jobList = jobs.map((job, i) =>
-            `[${i}] Source: ${job.source}\nTitle: ${job.title?.slice(0, 80)}\nContent: ${job.description?.slice(0, 120) || 'N/A'}`
-        ).join('\n\n');
+    // Try Gemini first
+    if (gemini) {
+        try {
+            console.log('  📤 Sending batch to Gemini AI...');
 
-        const prompt = `Analyze these ${jobs.length} job posts. For each, determine if it's a REAL JOB POSTING (company hiring) or NOT (personal post, question, etc.). Focus on Golang/Go positions.
+            const jobList = jobs.map((job, i) =>
+                `[${i}] ${job.source}: ${job.title?.slice(0, 60)} | ${job.description?.slice(0, 80) || 'N/A'}`
+            ).join('\n');
+
+            const prompt = `Analyze these ${jobs.length} job posts. Determine if each is a REAL JOB POSTING (company hiring for Golang/Go developer) or NOT.
 
 ${jobList}
 
-Respond with ONLY a JSON array:
-[{"id": 0, "isValid": true, "score": 7, "reason": "hiring post"}]
+Respond with JSON array ONLY:
+[{"id": 0, "isValid": true, "score": 7, "reason": "golang hiring"}]
 
-Score: 8-10 real job, 5-7 possible, 1-4 not job.`;
+Score: 8-10=clear job posting, 5-7=possible, 1-4=not a job`;
 
-        console.log('  📤 Sending batch to G4F API...');
+            const result = await gemini.generateContent(prompt);
+            const responseText = result.response.text();
 
-        const response = await fetch(G4F_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: 'You are a job validator. Respond only with valid JSON array.' },
-                    { role: 'user', content: prompt }
-                ],
-                max_tokens: 1000
-            }),
-            timeout: 30000
-        });
-
-        if (!response.ok) {
-            throw new Error(`G4F API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const responseText = data.choices?.[0]?.message?.content || '';
-
-        console.log('  📥 Received response from G4F');
-
-        // Extract JSON array from response
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            for (const item of parsed) {
-                const idx = parseInt(item.id);
-                if (idx >= 0 && idx < jobs.length) {
-                    results.set(jobs[idx].id, {
-                        isValid: item.isValid === true,
-                        score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
-                        reason: item.reason || 'AI'
-                    });
+            // Parse JSON from response
+            const jsonMatch = responseText.match(/\[[\s\S]*?\]/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                for (const item of parsed) {
+                    const idx = parseInt(item.id);
+                    if (idx >= 0 && idx < jobs.length) {
+                        results.set(jobs[idx].id, {
+                            isValid: item.isValid === true,
+                            score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
+                            reason: item.reason || 'AI'
+                        });
+                    }
                 }
+                console.log(`  ✅ Gemini validated ${results.size}/${jobs.length} jobs`);
             }
-            console.log(`  ✅ AI validated ${results.size}/${jobs.length} jobs`);
+        } catch (error) {
+            const errorMsg = error.message?.slice(0, 80) || 'Unknown error';
+
+            if (errorMsg.includes('429') || errorMsg.includes('RATE_LIMIT')) {
+                console.log('  ⚠️ Gemini rate limit hit, using regex fallback');
+            } else {
+                console.log(`  ⚠️ Gemini error: ${errorMsg}`);
+            }
+            console.log('  🔧 Falling back to regex validation');
         }
-    } catch (error) {
-        console.log(`  ⚠️ G4F API failed: ${error.message?.slice(0, 60)}`);
-        console.log('  🔧 Using regex fallback for all jobs');
+    } else {
+        console.log('  ℹ️ No GEMINI_API_KEY, using regex validation');
     }
 
-    // Fill in any missing with regex fallback
+    // Fill missing results with regex fallback
     for (const job of jobs) {
         if (!results.has(job.id)) {
             results.set(job.id, regexValidate(job));
         }
     }
 
-    // Log summary
+    // Summary
     const validCount = [...results.values()].filter(r => r.isValid).length;
-    console.log(`  📊 Result: ${validCount}/${jobs.length} jobs validated as real job posts`);
+    const aiCount = [...results.values()].filter(r => r.reason !== 'regex').length;
+    console.log(`  📊 Result: ${validCount}/${jobs.length} valid (${aiCount} AI, ${jobs.length - aiCount} regex)`);
 
     return results;
 }
 
 /**
- * Simple regex validation for single job (no AI)
+ * Simple regex validation for single job
  */
 function regexValidateJob(job) {
     const text = `${job.title} ${job.description || ''} ${job.company || ''}`.toLowerCase();
 
     const golangPatterns = /\b(golang|go\s+developer|go\s+backend)\b/i;
-    const hasGolang = golangPatterns.test(text);
-
-    if (!hasGolang) return { isValid: false, score: 3, reason: 'no golang' };
-    if (CONFIG.excludeRegex.test(text)) return { isValid: false, score: 2, reason: 'excluded' };
+    if (!golangPatterns.test(text)) return { isValid: false, score: 3, reason: 'no golang' };
+    if (CONFIG.excludeRegex?.test(text)) return { isValid: false, score: 2, reason: 'excluded' };
 
     return { isValid: true, score: 6, reason: 'regex match' };
 }
