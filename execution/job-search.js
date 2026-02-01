@@ -37,6 +37,9 @@ const CONFIG = {
     excludeRegex: /\b(senior|lead|manager|principal|staff|architect|\d{2,}\+?\s*years?|[3-9]\s*years?)\b/i,
     includeRegex: /\b(fresher|intern|junior|entry[\s-]?level|graduate|trainee)\b/i,
 
+    // Only accept jobs from current year and previous year
+    validYears: [new Date().getFullYear(), new Date().getFullYear() - 1], // e.g., [2026, 2025]
+
     locations: {
         primary: ['cần thơ', 'can tho', 'remote', 'từ xa'],
         secondary: ['ho chi minh', 'hồ chí minh', 'hanoi', 'hà nội', 'worldwide', 'global']
@@ -298,7 +301,52 @@ function shouldIncludeJob(job) {
     // Exclude senior/lead/manager or >2 years
     if (CONFIG.excludeRegex.test(text)) return false;
 
+    // Must be from valid years (current or previous year)
+    if (!isRecentJob(job.postedDate)) return false;
+
     return true;
+}
+
+/**
+ * Check if a job was posted within valid years (current or previous year)
+ * @param {string} dateStr - Date string like "31/01/2026" or "N/A"
+ * @returns {boolean}
+ */
+function isRecentJob(dateStr) {
+    if (!dateStr || dateStr === 'N/A') {
+        // If no date available, assume it's recent (benefit of doubt)
+        return true;
+    }
+
+    try {
+        // Parse date in format "DD/MM/YYYY" (Vietnamese format)
+        let year;
+        if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            year = parseInt(parts[2] || parts[1]); // Handle DD/MM/YYYY or MM/YYYY
+        } else if (dateStr.includes('-')) {
+            const parts = dateStr.split('-');
+            year = parseInt(parts[0]); // YYYY-MM-DD format
+        } else {
+            // Try to extract any 4-digit year
+            const yearMatch = dateStr.match(/\b(20\d{2})\b/);
+            year = yearMatch ? parseInt(yearMatch[1]) : null;
+        }
+
+        if (year && CONFIG.validYears.includes(year)) {
+            return true;
+        }
+
+        // If year found but not in valid years, reject
+        if (year) {
+            return false;
+        }
+    } catch (e) {
+        // On parse error, assume recent
+        return true;
+    }
+
+    return true; // Default: accept if can't determine
 }
 
 // =============================================================================
