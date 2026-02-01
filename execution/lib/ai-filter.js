@@ -1,13 +1,9 @@
 /**
- * AI Job Filter - Supports multiple providers with fallback
+ * AI Job Filter - Gemini + Regex Fallback
  * 
  * Priority:
  * 1. Gemini (if GEMINI_API_KEY set) - free tier 15 req/min
  * 2. Regex fallback (always works)
- * 
- * Note: G4F requires self-hosted Docker (api.g4f.dev unstable)
- * To use G4F: docker run -p 1337:8080 hlohaus789/g4f:latest
- * Then set G4F_API_URL=http://localhost:1337/v1
  */
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -20,9 +16,6 @@ if (geminiApiKey) {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 }
-
-// G4F self-hosted API endpoint (if using Docker)
-const G4F_API_URL = process.env.G4F_API_URL || 'http://localhost:1337/v1';
 
 /**
  * Batch validate ALL jobs from ALL platforms with ONE API call
@@ -59,7 +52,7 @@ async function batchValidateJobsWithAI(jobs) {
 
     console.log(`\n🤖 AI Validation: Processing ${jobs.length} jobs...`);
 
-    // Try Gemini first
+    // Try Gemini if available
     if (gemini) {
         try {
             console.log('  📤 Sending batch to Gemini AI...');
@@ -75,12 +68,11 @@ ${jobList}
 Respond with JSON array ONLY:
 [{"id": 0, "isValid": true, "score": 7, "reason": "golang hiring"}]
 
-Score: 8-10=clear job posting, 5-7=possible, 1-4=not a job`;
+Score: 8-10=clear job, 5-7=possible, 1-4=not a job`;
 
             const result = await gemini.generateContent(prompt);
             const responseText = result.response.text();
 
-            // Parse JSON from response
             const jsonMatch = responseText.match(/\[[\s\S]*?\]/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
@@ -98,7 +90,6 @@ Score: 8-10=clear job posting, 5-7=possible, 1-4=not a job`;
             }
         } catch (error) {
             const errorMsg = error.message?.slice(0, 80) || 'Unknown error';
-
             if (errorMsg.includes('429') || errorMsg.includes('RATE_LIMIT')) {
                 console.log('  ⚠️ Gemini rate limit hit, using regex fallback');
             } else {
@@ -107,10 +98,10 @@ Score: 8-10=clear job posting, 5-7=possible, 1-4=not a job`;
             console.log('  🔧 Falling back to regex validation');
         }
     } else {
-        console.log('  ℹ️ No GEMINI_API_KEY, using regex validation');
+        console.log('  🔧 Using regex validation (no GEMINI_API_KEY)');
     }
 
-    // Fill missing results with regex fallback
+    // Fill missing with regex fallback
     for (const job of jobs) {
         if (!results.has(job.id)) {
             results.set(job.id, regexValidate(job));
@@ -125,17 +116,4 @@ Score: 8-10=clear job posting, 5-7=possible, 1-4=not a job`;
     return results;
 }
 
-/**
- * Simple regex validation for single job
- */
-function regexValidateJob(job) {
-    const text = `${job.title} ${job.description || ''} ${job.company || ''}`.toLowerCase();
-
-    const golangPatterns = /\b(golang|go\s+developer|go\s+backend)\b/i;
-    if (!golangPatterns.test(text)) return { isValid: false, score: 3, reason: 'no golang' };
-    if (CONFIG.excludeRegex?.test(text)) return { isValid: false, score: 2, reason: 'excluded' };
-
-    return { isValid: true, score: 6, reason: 'regex match' };
-}
-
-module.exports = { batchValidateJobsWithAI, regexValidateJob };
+module.exports = { batchValidateJobsWithAI };
