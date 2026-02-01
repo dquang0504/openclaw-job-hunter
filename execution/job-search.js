@@ -2,15 +2,10 @@
  * OpenClaw Job Search Automation
  * Main orchestration file - imports all modules
  * 
- * Structure:
- * - config.js: Configuration
- * - lib/telegram.js: Telegram notifications
- * - lib/ai-filter.js: Gemini AI validation
- * - lib/deduplication.js: Seen jobs tracking
- * - lib/stealth.js: Browser helpers
- * - lib/filters.js: Job filtering
- * - scrapers/topcv.js: TopCV scraper
- * - scrapers/twitter.js: Twitter scraper
+ * Platforms:
+ * - TopCV.vn (with cookies)
+ * - X/Twitter (with cookies)
+ * - LinkedIn (Guest Mode - no cookies/login required)
  */
 
 require('dotenv').config();
@@ -22,9 +17,10 @@ const path = require('path');
 const CONFIG = require('./config');
 const TelegramReporter = require('./lib/telegram');
 const { loadSeenJobs, saveSeenJobs } = require('./lib/deduplication');
-const { randomDelay } = require('./lib/stealth');
+const { randomDelay, getRandomUserAgent, applyStealthSettings } = require('./lib/stealth');
 const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
+const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
 
 // =============================================================================
 // MAIN EXECUTION
@@ -53,13 +49,14 @@ async function main() {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
+    // Regular context for TopCV and Twitter (with cookies)
     const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        userAgent: getRandomUserAgent(),
         viewport: { width: 1366, height: 768 },
         locale: 'vi-VN'
     });
 
-    // Load cookies
+    // Load cookies for TopCV and Twitter
     const cookieFiles = {
         topcv: path.join(CONFIG.paths.cookies, 'cookies-topcv.json'),
         twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json')
@@ -81,15 +78,38 @@ async function main() {
     let allJobs = [];
 
     try {
-        // Scrape platforms
+        // Scrape TopCV
         if (platform === 'all' || platform === 'topcv') {
             const topcvJobs = await scrapeTopCV(page, reporter);
             allJobs = allJobs.concat(topcvJobs);
         }
 
+        // Scrape Twitter
         if (platform === 'all' || platform === 'twitter') {
             const twitterJobs = await scrapeTwitter(page, reporter);
             allJobs = allJobs.concat(twitterJobs);
+        }
+
+        // Scrape LinkedIn (Guest Mode - separate context, no cookies)
+        if (platform === 'all' || platform === 'linkedin') {
+            console.log('\n🔒 Starting LinkedIn Guest Mode (no login/cookies)...');
+
+            // Create fresh context for LinkedIn - no persistence
+            const linkedInContext = await createLinkedInContext(browser);
+            const linkedInPage = await linkedInContext.newPage();
+
+            // Apply stealth settings
+            await applyStealthSettings(linkedInPage);
+
+            try {
+                const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
+                allJobs = allJobs.concat(linkedInJobs);
+            } finally {
+                // Clear all session data - ensures fresh guest identity next run
+                await linkedInContext.clearCookies();
+                await linkedInContext.close();
+                console.log('  🧹 LinkedIn context cleared (fresh guest identity)');
+            }
         }
 
         // Sort by match score
