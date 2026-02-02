@@ -5,7 +5,7 @@ on:
   schedule:
     # Runs every 4 hours: 8am, 12pm, 4pm, 8pm, 12am (UTC+7)
     # Convert to UTC: subtract 7 hours
-    - cron: '0 1,5,9,13,17,21 * * *'
+    - cron: '0 0,6,12,18 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
@@ -36,30 +36,36 @@ jobs:
           echo '${{ secrets.COOKIES_TOPCV }}' > .cookies/cookies-topcv.json
           echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
           echo '${{ secrets.COOKIES_LINKEDIN }}' > .cookies/cookies-linkedin.json
+          echo '${{ secrets.COOKIES_FACEBOOK }}' > .cookies/cookies-facebook.json
+          echo '${{ secrets.COOKIES_VERCEL }}' > .cookies/cookies-vercel.json
       
-      # Restore seen-jobs cache to avoid duplicate notifications
-      - name: Restore seen jobs cache
+      # Restore caches (seen-jobs + rophim-cache)
+      - name: Restore caches
         uses: actions/cache@v4
         with:
-          path: logs/seen-jobs.json
-          key: seen-jobs-${{ github.run_id }}
+          path: |
+            logs/seen-jobs.json
+            logs/rophim-cache.json
+          key: logs-${{ github.run_id }}
           restore-keys: |
-            seen-jobs-
+            logs-
       
       - name: Run job search
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: node execution/job-search.js
       
-      # Save seen-jobs cache for next run
-      - name: Save seen jobs cache
+      # Save caches
+      - name: Save caches
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: logs/seen-jobs.json
-          key: seen-jobs-${{ github.run_id }}
+          path: |
+            logs/seen-jobs.json
+            logs/rophim-cache.json
+          key: logs-${{ github.run_id }}
       
       - name: Upload logs (optional)
         uses: actions/upload-artifact@v4
