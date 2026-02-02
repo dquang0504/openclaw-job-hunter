@@ -5,7 +5,7 @@ on:
   schedule:
     # Runs every 4 hours: 8am, 12pm, 4pm, 8pm, 12am (UTC+7)
     # Convert to UTC: subtract 7 hours
-    - cron: '0 0,6,12,18 * * *'
+    - cron: '0 1,5,9,13,17,21 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
