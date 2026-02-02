@@ -21,11 +21,16 @@ const { loadSeenJobs, saveSeenJobs } = require('./lib/deduplication');
 const { randomDelay, getRandomUserAgent, applyStealthSettings } = require('./lib/stealth');
 const { batchValidateJobsWithAI } = require('./lib/ai-filter');
 const { calculateMatchScore } = require('./lib/filters');
+const { formatDateTime } = require('./utils/date');
 
 // Import scrapers
 const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
 const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
+const { scrapeFacebook } = require('./scrapers/facebook');
+const { scrapeIndeed } = require('./scrapers/indeed');
+const { scrapeVercel } = require('./scrapers/vercel');
+const { scrapeRophim } = require('./scrapers/rophim');
 
 // =============================================================================
 // MAIN EXECUTION
@@ -39,6 +44,7 @@ async function main() {
     const skipAI = args.includes('--no-ai');
 
     console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platform}, AI: ${!skipAI})`);
+    console.log(`🕒 Execution started at: ${formatDateTime()}`);
 
     // Ensure directories exist
     for (const dir of Object.values(CONFIG.paths)) {
@@ -51,8 +57,14 @@ async function main() {
     const reporter = new TelegramReporter();
 
     const browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        headless: true, // User might want to switch to false for safer scraping, but we keep true as default with stealth args
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled', // Critical for hiding `navigator.webdriver`
+            '--disable-infobars',
+            '--window-size=1366,768'
+        ]
     });
 
     // Regular context for TopCV and Twitter
@@ -66,7 +78,9 @@ async function main() {
     const cookieFiles = {
         topcv: path.join(CONFIG.paths.cookies, 'cookies-topcv.json'),
         twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json'),
-        linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json')  // NEW: LinkedIn cookies
+        linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json'),
+        facebook: path.join(CONFIG.paths.cookies, 'cookies-facebook.json'),
+        vercel: path.join(CONFIG.paths.cookies, 'cookies-vercel.json')
     };
 
     for (const [name, file] of Object.entries(cookieFiles)) {
@@ -102,36 +116,58 @@ async function main() {
         }
 
         // Scrape LinkedIn
-        if (platform === 'all' || platform === 'linkedin') {
-            console.log('\n🔒 Starting LinkedIn scraper...');
+        // if (platform === 'all' || platform === 'linkedin') {
+        //     console.log('\n🔒 Starting LinkedIn scraper...');
 
-            // Check if LinkedIn cookies exist for authenticated mode
-            const hasLinkedInCookies = fs.existsSync(cookieFiles.linkedin);
+        //     // Check if LinkedIn cookies exist for authenticated mode
+        //     const hasLinkedInCookies = fs.existsSync(cookieFiles.linkedin);
 
-            // Always create separate context for LinkedIn
-            const linkedInContext = await createLinkedInContext(browser);
-            const linkedInPage = await linkedInContext.newPage();
+        //     // Always create separate context for LinkedIn
+        //     const linkedInContext = await createLinkedInContext(browser);
+        //     const linkedInPage = await linkedInContext.newPage();
 
-            try {
-                // Load cookies if available
-                if (hasLinkedInCookies) {
-                    console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
-                    const cookies = JSON.parse(fs.readFileSync(cookieFiles.linkedin, 'utf-8'));
-                    await linkedInContext.addCookies(cookies);
-                } else {
-                    console.log('  🔓 No LinkedIn cookies - using Guest Mode');
-                }
+        //     try {
+        //         // Load cookies if available
+        //         if (hasLinkedInCookies) {
+        //             console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
+        //             const cookies = JSON.parse(fs.readFileSync(cookieFiles.linkedin, 'utf-8'));
+        //             await linkedInContext.addCookies(cookies);
+        //         } else {
+        //             console.log('  🔓 No LinkedIn cookies - using Guest Mode');
+        //         }
 
-                await applyStealthSettings(linkedInPage);
+        //         await applyStealthSettings(linkedInPage);
 
-                const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
-                allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-            } catch (error) {
-                console.error('  ❌ LinkedIn scraper error:', error.message);
-            } finally {
-                await linkedInContext.close();
-                console.log('  🧹 LinkedIn context closed');
-            }
+        //         const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
+        //         allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+        //     } catch (error) {
+        //         console.error('  ❌ LinkedIn scraper error:', error.message);
+        //     } finally {
+        //         await linkedInContext.close();
+        //         console.log('  🧹 LinkedIn context closed');
+        //     }
+        // }
+
+        // Scrape Facebook
+        if (platform === 'all' || platform === 'facebook') {
+            const fbJobs = await scrapeFacebook(page, reporter);
+            allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
+        }
+
+        // Scrape Indeed
+        if (platform === 'all' || platform === 'indeed') {
+            const indeedJobs = await scrapeIndeed(page, reporter);
+            allRawJobs = allRawJobs.concat(indeedJobs.map((j, i) => ({ ...j, id: `indeed-${i}` })));
+        }
+
+        // Monitor Vercel
+        if (platform === 'all' || platform === 'vercel') {
+            await scrapeVercel(page, reporter);
+        }
+
+        // Monitor Rophim
+        if (platform === 'all' || platform === 'rophim') {
+            await scrapeRophim(page, reporter);
         }
 
         console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
@@ -226,7 +262,10 @@ async function main() {
     }
 
     // Save results
-    const logFile = path.join(CONFIG.paths.logs, `job-search-${new Date().toISOString().split('T')[0]}.json`);
+    // Save results
+    const safeTime = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+    const logFile = path.join(CONFIG.paths.logs, `job-search-${safeTime}.json`);
+
     if (!fs.existsSync(CONFIG.paths.logs)) {
         fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
     }

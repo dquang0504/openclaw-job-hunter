@@ -6,16 +6,11 @@ const path = require('path');
 
 const CONFIG = {
     keywords: [
-        'golang fresher',
-        'remote intern golang',
-        'junior golang developer',
-        'golang backend intern',
-        'entry level golang',
-        'go developer fresher',
-        'golang internship'
+        'golang'
     ],
     keywordRegex: /\b(golang|go\s+developer|go\s+backend)\b/i,
-    excludeRegex: /\b(senior|lead|manager|principal|staff|architect|\d{2,}\+?\s*years?|[3-9]\s*years?)\b/i,
+    // Exclude > 2 years
+    excludeRegex: /\b(senior|lead|manager|principal|staff|architect|(\d{2,}|[3-9])\s*(\+|plus)?\s*years?|2\+\s*years?)\b/i,
     includeRegex: /\b(fresher|intern|junior|entry[\s-]?level|graduate|trainee)\b/i,
 
     // Only accept jobs from current year and previous year
@@ -23,8 +18,18 @@ const CONFIG = {
 
     locations: {
         primary: ['cần thơ', 'can tho', 'remote', 'từ xa'],
-        secondary: ['ho chi minh', 'hồ chí minh', 'hanoi', 'hà nội', 'worldwide', 'global']
+        // User requested ONLY Remote or Can Tho
+        secondary: []
     },
+
+    facebookGroups: [
+        'https://www.facebook.com/groups/golang.org.vn', // Golang Jobs Viet Nam
+        'https://www.facebook.com/groups/1875985159376456', // 'Cần Thơ - IT Jobs'
+        'https://www.facebook.com/groups/nodejs.php.python', // 'Tuyển dụng Backend Python, PHP, NodeJS, Golang'
+        'https://www.facebook.com/groups/itjobsphp', // 'Tuyển Dụng IT - Việc làm Back-end Java, .NET, Golang, PHP, Python, NodeJS'
+    ],
+
+    vercelUrl: 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h',
 
     delays: {
         min: 500,

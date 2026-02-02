@@ -112,28 +112,35 @@ async function humanType(page, selector, text) {
 async function applyStealthSettings(page) {
     // Override navigator properties
     await page.addInitScript(() => {
-        // Spoof webdriver
+        // Spoof webdriver - multiple properties
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        window.navigator.chrome = { runtime: {} };
 
-        // Spoof plugins
+        // Mock Plugins aiming for standard Chrome on Linux
         Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5]
+            get: () => {
+                return [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: 'Portable Document Format' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+                ];
+            }
         });
 
-        // Spoof languages
+        // Pass standard languages
         Object.defineProperty(navigator, 'languages', {
-            get: () => ['en-US', 'en', 'vi-VN']
+            get: () => ['vi-VN', 'vi', 'en-US', 'en']
         });
 
-        // Override chrome property
-        window.chrome = { runtime: {} };
-
-        // Override permissions
+        // Permissions spoofing
         const originalQuery = window.navigator.permissions.query;
         window.navigator.permissions.query = (parameters) =>
             parameters.name === 'notifications'
                 ? Promise.resolve({ state: Notification.permission })
                 : originalQuery(parameters);
+
+        // Hide automation from CDC (Chrome DevTools Protocol)
+        // Note: This is partial, robust evasion requires args at launch like --disable-blink-features=AutomationControlled
     });
 }
 

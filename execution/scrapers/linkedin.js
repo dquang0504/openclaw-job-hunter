@@ -35,6 +35,15 @@ async function scrapeLinkedIn(page, reporter) {
     const jobs = [];
     await applyStealthSettings(page);
 
+    // Warm up the session by visiting feed first
+    try {
+        console.log('  🔥 Warming up session (visiting feed)...');
+        await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await randomDelay(2000, 3000);
+    } catch (e) {
+        console.log('  ⚠️ Warmup warning:', e.message);
+    }
+
     for (const keyword of LINKEDIN_KEYWORDS) {
         if (page.isClosed()) {
             console.log('  ⚠️ Browser closed, stopping search');
@@ -52,13 +61,15 @@ async function scrapeLinkedIn(page, reporter) {
 
             await randomDelay(1500, 2000);
 
-            // Quick login check
-            const isLoggedIn = await page.locator('.global-nav__me').count() > 0;
-            if (!isLoggedIn) {
-                console.log('  ⚠️ Not logged in');
+            // Robust login check with wait
+            try {
+                // Wait up to 5s for the nav to appear
+                await page.waitForSelector('.global-nav__me, .global-nav__primary-link', { timeout: 5000 });
+                console.log('  ✅ Logged in successfully');
+            } catch (e) {
+                console.log('  ⚠️ Not logged in (Session invalid or element not found)');
                 continue;
             }
-            console.log('  ✅ Logged in successfully');
 
             // Wait for posts
             await page.waitForTimeout(2000);

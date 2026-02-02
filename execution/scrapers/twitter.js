@@ -22,7 +22,7 @@ async function scrapeTwitter(page, reporter) {
 
     try {
         await page.goto(`https://x.com/search?q=${encodeURIComponent(searchQuery)}&f=live`,
-            { waitUntil: 'domcontentloaded', timeout: 20000 });
+            { waitUntil: 'domcontentloaded', timeout: 60000 });
         await randomDelay(1000, 2000);
 
         await page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 }).catch(() => { });

@@ -1,20 +1,19 @@
 /**
- * AI Job Filter - Gemini + Regex Fallback
+ * AI Job Filter - Groq (Llama 3) + Regex Fallback
  * 
  * Priority:
- * 1. Gemini (if GEMINI_API_KEY set) - free tier 15 req/min
+ * 1. Groq (if GROQ_API_KEY set) - fast & accurate
  * 2. Regex fallback (always works)
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const CONFIG = require('../config');
 
-// Initialize Gemini if API key available
-const geminiApiKey = process.env.GEMINI_API_KEY;
-let gemini = null;
-if (geminiApiKey) {
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
-    gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+// Initialize Groq if API key available
+const groqApiKey = process.env.GROQ_API_KEY;
+let groq = null;
+if (groqApiKey) {
+    groq = new Groq({ apiKey: groqApiKey });
 }
 
 /**
@@ -64,58 +63,83 @@ async function batchValidateJobsWithAI(jobs) {
 
     console.log(`\n🤖 AI Validation: Processing ${jobs.length} jobs...`);
 
-    // Try Gemini if available
-    if (gemini) {
+    // Try Groq if available
+    if (groq) {
         try {
-            console.log('  📤 Sending batch to Gemini AI...');
+            console.log('  📤 Sending batch to Groq (Llama3-70b)...');
 
             const jobList = jobs.map((job, i) =>
-                `[${i}] ${job.source}: ${job.title?.slice(0, 60)} | ${job.description?.slice(0, 80) || 'N/A'}`
+                `[ID:${i}] SOURCE: ${job.source} | TITLE: ${job.title?.slice(0, 80)} | DESC: ${job.description?.slice(0, 150) || 'N/A'}`
             ).join('\n');
 
-            const prompt = `Analyze these ${jobs.length} job posts. Determine if each is a REAL JOB POSTING (company hiring for Golang/Go developer) or NOT.
-Also extract key details (location, date posted if relative time in text, tech stack).
+            const systemPrompt = `You are an expert Job Hunter AI.
+Your task is to analyze a list of job postings and filter for REAL Golang/Go software development jobs.
 
-${jobList}
+Rules:
+1. Identify if it is a REAL Job Posting (Hiring) or just a discussion/spam.
+2. Ensure it is related to GOLANG (Go language).
+3. Score from 1-10 (10 = Perfect Golang Job match, 1 = Spam/Irrelevant).
+4. Extract key details: Location (e.g., "Remote", "Hanoi"), Posted Date (convert relative to absolute if possible, or keep as is), Tech Stack.
+5. Ignore "looking for job" posts (candidates asking for work).
 
-Respond with JSON array ONLY:
-[{"id": 0, "isValid": true, "score": 7, "reason": "golang hiring", "location": "Remote", "postedDate": "2 days ago", "techStack": "Golang, Docker"}]
+Output JSON ARRAY ONLY. No markdown, no text.
+Format:
+[{"id": 0, "isValid": true, "score": 9, "reason": "Clear golang hiring", "location": "Remote", "postedDate": "2024-02-01", "techStack": "Go, AWS"}]`;
 
-Score: 8-10=clear job, 5-7=possible, 1-4=not a job.
-If location/date is missing, use "Unknown" or leave blank.`;
+            const completion = await groq.chat.completions.create({
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: jobList }
+                ],
+                model: "llama-3.3-70b-versatile",
+                temperature: 0.1,
+                response_format: { type: "json_object" }
+            });
 
-            const result = await gemini.generateContent(prompt);
-            const responseText = result.response.text();
+            const responseText = completion.choices[0]?.message?.content;
 
-            const jsonMatch = responseText.match(/\[[\s\S]*?\]/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                for (const item of parsed) {
-                    const idx = parseInt(item.id);
-                    if (idx >= 0 && idx < jobs.length) {
-                        results.set(jobs[idx].id, {
-                            isValid: item.isValid === true,
-                            score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
-                            reason: item.reason || 'AI',
-                            location: item.location,    // AI extracted
-                            postedDate: item.postedDate, // AI extracted
-                            techStack: item.techStack    // AI extracted
-                        });
-                    }
+            // Groq usually returns an object if response_format is json_object, but we need an array.
+            // Sometimes it wraps in { "jobs": [...] } or just [...]
+            // Let's safe parse.
+            let parsed = [];
+            try {
+                const json = JSON.parse(responseText);
+                if (Array.isArray(json)) {
+                    parsed = json;
+                } else if (json.jobs && Array.isArray(json.jobs)) {
+                    parsed = json.jobs;
+                } else {
+                    // Try to find array in keys
+                    const key = Object.keys(json).find(k => Array.isArray(json[k]));
+                    if (key) parsed = json[key];
                 }
-                console.log(`  ✅ Gemini validated ${results.size}/${jobs.length} jobs`);
+            } catch (e) {
+                console.warn("Retrying JSON parse with regex...");
+                const match = responseText.match(/\[[\s\S]*\]/);
+                if (match) parsed = JSON.parse(match[0]);
             }
+
+            for (const item of parsed) {
+                const idx = parseInt(item.id);
+                if (idx >= 0 && idx < jobs.length) {
+                    results.set(jobs[idx].id, {
+                        isValid: item.isValid === true,
+                        score: Math.min(10, Math.max(1, parseInt(item.score) || 5)),
+                        reason: item.reason || 'AI',
+                        location: item.location,
+                        postedDate: item.postedDate,
+                        techStack: item.techStack
+                    });
+                }
+            }
+            console.log(`  ✅ Groq validated ${results.size}/${jobs.length} jobs`);
+
         } catch (error) {
-            const errorMsg = error.message?.slice(0, 80) || 'Unknown error';
-            if (errorMsg.includes('429') || errorMsg.includes('RATE_LIMIT')) {
-                console.log('  ⚠️ Gemini rate limit hit, using regex fallback');
-            } else {
-                console.log(`  ⚠️ Gemini error: ${errorMsg}`);
-            }
+            console.log(`  ⚠️ Groq Error: ${error.message}`);
             console.log('  🔧 Falling back to regex validation');
         }
     } else {
-        console.log('  🔧 Using regex validation (no GEMINI_API_KEY)');
+        console.log('  🔧 Using regex validation (no GROQ_API_KEY)');
     }
 
     // Fill missing with regex fallback
@@ -127,11 +151,9 @@ If location/date is missing, use "Unknown" or leave blank.`;
 
     // Summary
     const validCount = [...results.values()].filter(r => r.isValid).length;
-    const aiCount = [...results.values()].filter(r => r.reason === 'AI' || r.reason.includes('Gemini')).length;
-    const trustedCount = [...results.values()].filter(r => r.reason === 'linkedin-pre-filtered').length;
-    const regexCount = [...results.values()].filter(r => r.reason === 'regex' || r.reason === 'linkedin-regex').length;
+    const aiCount = [...results.values()].filter(r => r.reason === 'AI' || (r.reason && !r.reason.includes('regex'))).length;
 
-    console.log(`  📊 Result: ${validCount}/${jobs.length} valid (AI: ${aiCount}, Trusted: ${trustedCount}, Regex: ${regexCount})`);
+    console.log(`  📊 Result: ${validCount}/${jobs.length} valid (AI/Trusted: ${aiCount})`);
 
     return results;
 }

@@ -4,6 +4,8 @@
 
 const TelegramBot = require('node-telegram-bot-api');
 
+const { formatDateTime } = require('../utils/date');
+
 class TelegramReporter {
     constructor() {
         this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
@@ -20,7 +22,8 @@ class TelegramReporter {
             `📍 ${this.escapeMarkdown(job.location || 'N/A')}`,
             job.postedDate ? `📅 ${this.escapeMarkdown(job.postedDate)}` : '',
             `🤖 Match Score: ${job.matchScore}/10`,
-            `🔖 Source: ${job.source}`
+            `🔖 Source: ${job.source}`,
+            `🕒 Found at: ${this.escapeMarkdown(formatDateTime())}`
         ].filter(Boolean).join('\n');
 
         await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
