@@ -5,8 +5,11 @@
 const CONFIG = require('../config');
 const { humanScroll } = require('../lib/stealth');
 
-async function scrapeRophim(page, reporter) {
+async function scrapeRophim(page, reporter, testOptions = {}) {
     console.log('🎬 Checking Rophim for Jujutsu Kaisen...');
+    if (testOptions.lastSeenEp) {
+        console.log(`  🧪 Test Mode: Forcing Last Seen Ep = ${testOptions.lastSeenEp}`);
+    }
 
     // User's specific URL
     const showUrl = 'https://www.rophim.la/xem-phim/chu-thuat-hoi-chien.4lufRzSV?ver=1&ss=3&ep=5';
@@ -27,7 +30,7 @@ async function scrapeRophim(page, reporter) {
         for (const sel of possibleContainers) {
             if (await page.locator(sel).count() > 0) {
                 container = page.locator(sel).first();
-                console.log(`  found episode container: ${sel}`);
+                // console.log(`  found episode container: ${sel}`);
                 break;
             }
         }
@@ -81,7 +84,9 @@ async function scrapeRophim(page, reporter) {
         // 1. Read Cache or Default
         let lastSeenEp = 5; // Default baseline
 
-        if (fs.existsSync(cachePath)) {
+        if (testOptions.lastSeenEp !== undefined) {
+            lastSeenEp = testOptions.lastSeenEp;
+        } else if (fs.existsSync(cachePath)) {
             try {
                 const cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
                 if (cache.lastSeenEp && typeof cache.lastSeenEp === 'number') {
@@ -92,18 +97,22 @@ async function scrapeRophim(page, reporter) {
             }
         }
 
-        console.log(`  🎬 Last Seen Episode (Cache): ${lastSeenEp}`);
+        console.log(`  🎬 Last Seen Episode (Cache/Test): ${lastSeenEp}`);
 
         if (maxEp > lastSeenEp) {
             console.log(`  🎉 New Episode Detected: ${maxEp}`);
             await reporter.sendStatus(`🎬 Anime Update: Jujutsu Kaisen có tập mới! (Tập ${maxEp}) > Tập ${lastSeenEp}`);
 
-            // 2. Update Cache Immediately
-            try {
-                fs.writeFileSync(cachePath, JSON.stringify({ lastSeenEp: maxEp, updated: new Date().toISOString() }, null, 2));
-                console.log(`  💾 Updated Rophim cache to Ep ${maxEp}`);
-            } catch (e) {
-                console.error('  ❌ Failed to update Rophim cache:', e);
+            // 2. Update Cache Immediately (Unless testing)
+            if (!testOptions.dryRun) {
+                try {
+                    fs.writeFileSync(cachePath, JSON.stringify({ lastSeenEp: maxEp, updated: new Date().toISOString() }, null, 2));
+                    console.log(`  💾 Updated Rophim cache to Ep ${maxEp}`);
+                } catch (e) {
+                    console.error('  ❌ Failed to update Rophim cache:', e);
+                }
+            } else {
+                console.log(`  🧪 Test Mode: Cache update SKIPPED (Would verify update to Ep ${maxEp})`);
             }
 
         } else {
