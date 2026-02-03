@@ -128,26 +128,53 @@ async function scrapeFacebook(page, reporter) {
                     // 4. Date Heuristic
                     if (text.includes('2023') || text.includes('2022')) continue;
 
-                    // Extract Link - often nested in timestamp or "View post"
-                    // Try to find a link that contains "/groups/" and "/posts/" or "/permalink/"
-                    // Stealth tip: Hover over link before extracting? No need.
+                    // Extract Link - specific fix for Search Results (often modals)
+                    // Strategy:
+                    // 1. Find 'top_level_post_id' in data attributes (data-ft, data-store)
+                    // 2. Regex match for specific Post ID patterns in the HTML chunk
+                    // 3. Construct URL manually: groups/{groupId}/posts/{postId}
 
-                    const linkEl = post.locator('a[href*="/groups/"][href*="/posts/"], a[href*="/permalink/"]').first();
-                    let urlStr = await linkEl.getAttribute('href').catch(() => null);
+                    let postId = null;
+                    let urlStr = null;
 
-                    if (!urlStr) {
-                        // Try finding date string which is usually a link
-                        // Look for 'a' tag that has aria-label containing time like "1 h", "Yesterday"
-                        // This is complex, fallback to groupUrl is safer
+                    // Method A: Check all links for /posts/123 or /permalink/123
+                    const allLinks = await post.locator('a[href*="/groups/"], a[href*="/permalink/"]').all();
+                    for (const link of allLinks) {
+                        const href = await link.getAttribute('href');
+                        if (!href) continue;
+
+                        // Match ID
+                        const match = href.match(/\/posts\/(\d+)/) || href.match(/\/permalink\/(\d+)/) || href.match(/multi_permalinks=(\d+)/);
+                        if (match) {
+                            postId = match[1];
+                            break;
+                        }
+                    }
+
+                    // Method B: Regex search in the element HTML (for hidden IDs in data-ft)
+                    if (!postId) {
+                        const outerHtml = await post.evaluate(el => el.outerHTML);
+
+                        // Look for "top_level_post_id":"12345" or "story_fbid":[12345]
+                        const idMatch = outerHtml.match(/"top_level_post_id"\s*:\s*"(\d+)"/) ||
+                            outerHtml.match(/"story_fbid"\s*:\s*\[?(\d+)\]?/) ||
+                            outerHtml.match(/id="feed_subtitle_(\d+)/);
+
+                        if (idMatch) {
+                            postId = idMatch[1];
+                        }
+                    }
+
+                    if (postId) {
+                        // Construct CLEAN URL
+                        const groupSlug = cleanGroupUrl.split('/groups/')[1]?.split('/')[0] || cleanGroupUrl.split('/').pop();
+                        urlStr = `https://www.facebook.com/groups/${groupSlug}/posts/${postId}/`;
+                    } else {
+                        // Fallback
                         urlStr = groupUrl;
                     }
 
-                    // Clean URL (remove tracking params)
-                    if (urlStr && urlStr.includes('?')) {
-                        urlStr = urlStr.split('?')[0];
-                    }
-
-                    // Fix relative URLs
+                    // Final cleanup
                     if (urlStr && urlStr.startsWith('/')) {
                         urlStr = 'https://www.facebook.com' + urlStr;
                     }
