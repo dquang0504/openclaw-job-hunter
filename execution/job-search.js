@@ -86,9 +86,26 @@ async function main() {
     for (const [name, file] of Object.entries(cookieFiles)) {
         if (fs.existsSync(file)) {
             try {
-                const cookies = JSON.parse(fs.readFileSync(file, 'utf-8'));
-                await context.addCookies(cookies);
-                console.log(`🍪 Loaded ${name} cookies`);
+                const cookieData = JSON.parse(fs.readFileSync(file, 'utf-8'));
+                // Support both direct array and object with 'cookies' property (like EditThisCookie export)
+                const cookies = Array.isArray(cookieData) ? cookieData : (cookieData.cookies || []);
+
+                if (cookies.length > 0) {
+                    // Sanitize cookies for Playwright (Fix sameSite: no_restriction)
+                    const cleanCookies = cookies.map(c => {
+                        if (c.sameSite === 'no_restriction' || c.sameSite === 'unspecified') {
+                            c.sameSite = 'None';
+                        }
+                        // Ensure valid values: Strict, Lax, None
+                        if (!['Strict', 'Lax', 'None'].includes(c.sameSite)) {
+                            delete c.sameSite; // Let browser default
+                        }
+                        return c;
+                    });
+
+                    await context.addCookies(cleanCookies);
+                    console.log(`🍪 Loaded ${name} cookies (${cleanCookies.length})`);
+                }
             } catch (e) {
                 console.warn(`⚠️ Failed to load ${name} cookies:`, e.message);
             }

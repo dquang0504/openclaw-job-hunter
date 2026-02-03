@@ -39,12 +39,21 @@ async function scrapeFacebook(page, reporter) {
                 console.log(`  ⚠️ Timeout visiting group home, trying search direct...`);
             }
 
-            // Check for Blocked/Login
-            const pageContent = await page.content();
-            if (pageContent.includes('Temporarily Blocked') || pageContent.includes('You’re Temporarily Blocked') || pageContent.includes('checkpoint')) {
-                console.log('  ⛔ Account Temporarily Blocked or Checkpoint! Stopping Facebook scrape.');
-                await reporter.sendError('Facebook Scraper: Account flagged/blocked. Please check manually.');
-                return []; // Stop completely to protect account
+            // Check for Blocked/Login - Strict Check
+            // Don't use page.content() includes as it triggers on hidden scripts/comments
+            const currentUrl = page.url();
+            if (currentUrl.includes('/checkpoint/') || currentUrl.includes('/blocked/')) {
+                console.log('  ⛔ Redirected to Checkpoint URL. Stopping.');
+                await reporter.sendError('Facebook Scraper: Account flagged/blocked (URL Check).');
+                return [];
+            }
+
+            // check for visible block message
+            const blockedHeader = page.getByRole('heading', { name: /Temporarily Blocked|Account Restricted/i });
+            if (await blockedHeader.isVisible()) {
+                console.log('  ⛔ "Temporarily Blocked" message visible. Stopping.');
+                await reporter.sendError('Facebook Scraper: Account flagged/blocked (UI Check).');
+                return [];
             }
 
             await randomDelay(2000, 4000);
