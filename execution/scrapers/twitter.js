@@ -60,7 +60,7 @@ async function scrapeTwitter(page, reporter) {
                     location: 'Remote/Global',
                     source: 'X (Twitter)',
                     techStack: 'Go/Golang',
-                    postedDate: dateTime ? new Date(dateTime).toLocaleDateString('vi-VN') : 'N/A',
+                    postedDate: dateTime ? new Date(dateTime).toISOString().split('T')[0] : 'N/A',
                     matchScore: 5  // Default, will be overwritten by AI
                 };
 

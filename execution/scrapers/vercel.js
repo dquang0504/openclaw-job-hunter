@@ -3,55 +3,65 @@
  */
 
 const CONFIG = require('../config');
-const path = require('path');
 
 async function scrapeVercel(page, reporter) {
     console.log('📈 Checking Vercel Analytics...');
 
-    // Cookies are now loaded in job-search.js
-
     try {
         const targetUrl = CONFIG.vercelUrl || 'https://vercel.com/dashboard';
 
-        // Relaxed wait condition: 'domcontentloaded' + manual wait
-        // 'networkidle' is too flaky for heavy SPA like Vercel
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Wait for potential redirect or hydration
+        // Wait for hydration
         try {
-            // Wait for either dashboard element OR login input
-            await page.waitForSelector('input[name="email"], h1, [data-testid="dashboard-title"], [data-testid="visitors-count"]', { timeout: 10000 });
-        } catch (e) {
-            // ignore timeout, just proceed to check logic
-        }
+            await page.waitForTimeout(3000); // Give React time to hydrate
+            await page.waitForSelector('text=Visitors', { timeout: 10000 });
+        } catch (e) { }
 
-        // Check if logged in
+        // Check login
         if (page.url().includes('login') || await page.locator('input[name="email"]').isVisible()) {
-            console.log('  ❌ Not logged in to Vercel (Redirected to Login). Skipping.');
+            console.log('  ❌ Not logged in to Vercel. Skipping.');
             return;
         }
 
         console.log('  ✅ Access Vercel Dashboard/Analytics');
 
-        // Scrape logic
-        // If URL is analytics specific
         if (targetUrl.includes('/analytics')) {
             try {
-                await page.waitForSelector('[data-testid="visitors-count"], span:has-text("Visitors")', { timeout: 10000 });
+                // Debug: Dump Body Text to see what's actually rendered
+                const bodyText = await page.innerText('body');
+                const cleanBody = bodyText.replace(/\n+/g, '\n');
 
-                const visitorEl = page.locator('span:has-text("Visitors") + span, p:has-text("Visitors") + p, [data-testid="visitors-count"]').first();
-                const visitorCount = await visitorEl.innerText().catch(() => '0');
+                // console.log('--- BODY TEXT START ---');
+                // console.log(cleanBody.slice(0, 1000)); 
+                // console.log('--- BODY TEXT END ---');
 
-                console.log(`  📊 Vercel Traffic: ${visitorCount} visitors`);
+                // Heuristic: The dashboard usually shows Visitors, Views, Bounce in order.
+                // Regex strategy: Find "Visitors" followed by newline and a number.
 
-                if (parseInt(visitorCount.replace(/,/g, '')) > 0) {
-                    await reporter.sendStatus(`📈 Vercel Project Traffic: ${visitorCount} visitors in the last 24h.`);
+                let visitors = 'N/A';
+                const visitMatch = cleanBody.match(/Visitors\s*\n\s*([\d,.]+)/i);
+                if (visitMatch) visitors = visitMatch[1];
+
+                const viewMatch = cleanBody.match(/Page Views\s*\n\s*([\d,.]+)/i);
+                const pageViews = viewMatch ? viewMatch[1] : 'N/A';
+
+                const bounceMatch = cleanBody.match(/Bounce Rate\s*\n\s*([\d,.]+%?)/i);
+                const bounceRate = bounceMatch ? bounceMatch[1] : 'N/A';
+
+                console.log(`  📊 Vercel Stats (24h): Visitors=${visitors}, Views=${pageViews}, Bounce=${bounceRate}`);
+
+                if (visitors !== 'N/A' || pageViews !== 'N/A') {
+                    await reporter.sendStatus(`📈 Vercel Analytics (24h):\n- Visitors: ${visitors}\n- Page Views: ${pageViews}\n- Bounce Rate: ${bounceRate}`);
+                } else {
+                    console.log('  ℹ️ Could not find metrics in text. (Might be loading or zero)');
                 }
+
             } catch (e) {
-                console.log('  ⚠️ Could not find visitor count element.');
+                console.log(`  ⚠️ Could not scrape analytics data: ${e.message}`);
+                const title = await page.title();
+                console.log(`  Page Title: ${title}`);
             }
-        } else {
-            console.log('  ℹ️ Dashboard only. Set specific analytics URL in config for detailed stats.');
         }
 
     } catch (e) {
