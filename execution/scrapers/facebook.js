@@ -133,14 +133,29 @@ async function scrapeFacebook(page, reporter) {
                     // The timestamp usually has role="link" and contains the direct permalink with messy params
                     let urlStr = null;
                     try {
-                        const timestampLink = await post.locator('a[href*="/posts/"][role="link"], a[href*="/permalink/"][role="link"]').first();
-                        if (await timestampLink.count() > 0) {
-                            const href = await timestampLink.getAttribute('href');
-                            if (href) {
-                                // Clean the URL - remove tracking params like ?__cft__...
-                                const urlObj = new URL(href, 'https://www.facebook.com');
-                                urlObj.search = '';
-                                urlStr = urlObj.toString();
+                        // Strategy: Get ALL links in the post card and find the one that looks like a permalink
+                        const allLinks = await post.locator('a').all();
+                        
+                        for (const link of allLinks) {
+                            const href = await link.getAttribute('href');
+                            if (!href) continue;
+
+                            // Check if it matches a post pattern
+                            if (href.includes('/posts/') || href.includes('/permalink/')) {
+                                // Double check it's not a generic group link if possible, but /posts/ usually implies specific
+                                try {
+                                    const urlObj = new URL(href, 'https://www.facebook.com');
+                                    // Remove tracking params
+                                    urlObj.search = '';
+                                    urlStr = urlObj.toString();
+                                    
+                                    // If we found a good one, break
+                                    if (urlStr.includes('/posts/') || urlStr.includes('/permalink/')) {
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Invalid URL, skip
+                                }
                             }
                         }
                     } catch (e) {
