@@ -30,7 +30,7 @@ const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin')
 const { scrapeFacebook } = require('./scrapers/facebook');
 const { scrapeIndeed } = require('./scrapers/indeed');
 const { scrapeVercel } = require('./scrapers/vercel');
-const { scrapeRophim } = require('./scrapers/rophim');
+const { scrapeMotchillki } = require('./scrapers/motchillki');
 
 // =============================================================================
 // MAIN EXECUTION
@@ -190,9 +190,9 @@ async function main() {
             await scrapeVercel(page, reporter);
         }
 
-        // Monitor Rophim
-        if (platform === 'all' || platform === 'rophim') {
-            await scrapeRophim(page, reporter);
+        // Monitor Motchillki
+        if (platform === 'all' || platform === 'motchillki') {
+            await scrapeMotchillki(page, reporter);
         }
 
         console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
