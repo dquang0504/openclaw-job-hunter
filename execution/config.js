@@ -42,7 +42,8 @@ const CONFIG = {
         cookies: path.join(__dirname, '..', '.cookies'),
         logs: path.join(__dirname, '..', 'logs'),
         screenshots: path.join(__dirname, '..', '.tmp', 'screenshots'),
-        seenJobs: path.join(__dirname, '..', 'logs', 'seen-jobs.json')
+        seenJobs: path.join(__dirname, '..', 'logs', 'seen-jobs.json'),
+        vercelCache: path.join(__dirname, '..', 'logs', 'vercel-cache.json')
     }
 };
 

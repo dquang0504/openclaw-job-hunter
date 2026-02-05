@@ -57,21 +57,29 @@ async function main() {
     const reporter = new TelegramReporter();
 
     const browser = await chromium.launch({
-        headless: true, // User might want to switch to false for safer scraping, but we keep true as default with stealth args
+        headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled', // Critical for hiding `navigator.webdriver`
+            '--disable-blink-features=AutomationControlled',
             '--disable-infobars',
-            '--window-size=1366,768'
+            '--window-size=1366,768',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu'
         ]
     });
 
     // Regular context for TopCV and Twitter
+    // Fixed User Agent from successful test to bypass Indeed checks
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
     const context = await browser.newContext({
-        userAgent: getRandomUserAgent(),
+        userAgent: userAgent,
         viewport: { width: 1366, height: 768 },
-        locale: 'vi-VN'
+        locale: 'vi-VN',
+        timezoneId: 'Asia/Ho_Chi_Minh',
+        permissions: ['geolocation'],
+        geolocation: { latitude: 10.7769, longitude: 106.7009 } // HCM
     });
 
     // Load cookies

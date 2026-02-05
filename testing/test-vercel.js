@@ -18,6 +18,13 @@ const reporter = {
 async function runTest() {
     console.log('🚀 Starting Vercel Test...');
 
+    // Clear cache for testing
+    const cacheFile = CONFIG.paths.vercelCache;
+    if (fs.existsSync(cacheFile)) {
+        fs.unlinkSync(cacheFile);
+        console.log('🧹 Cache cleared for new test');
+    }
+
     const browser = await chromium.launch({
         headless: true, // Keep headless for speed, user can change to false to debug visually
         args: ['--no-sandbox', '--disable-setuid-sandbox']
