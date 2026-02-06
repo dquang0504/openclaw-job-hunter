@@ -116,7 +116,15 @@ async function scrapeVercel(page, reporter) {
                 // Compare with Cache
                 const isDifferent = JSON.stringify(currentStats) !== JSON.stringify(cachedStats);
 
-                if (visitors !== 'N/A' || pageViews !== 'N/A') {
+                // Check if we have ANY valid data
+                const hasValidData =
+                    visitors !== 'N/A' ||
+                    pageViews !== 'N/A' ||
+                    (topPages !== 'N/A' && topPages !== 'No data') ||
+                    (countries !== 'N/A' && countries !== 'No data') ||
+                    (devices !== 'N/A' && devices !== 'No data');
+
+                if (hasValidData) {
                     if (isDifferent) {
                         console.log('  🔔 Stats changed. Sending notification.');
                         const message = `📈 *Vercel Analytics Report* (24h)
@@ -144,7 +152,7 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
                         console.log('  Draws 💤 Stats identical to cache. Skipping notification.');
                     }
                 } else {
-                    console.log('  ℹ️ Could not find metrics in text. (Might be loading or zero)');
+                    console.log('  ℹ️ Could not find meaningful analytics data (All fields N/A or No data).');
                 }
 
             } catch (e) {
