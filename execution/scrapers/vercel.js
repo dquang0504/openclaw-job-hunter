@@ -39,95 +39,105 @@ async function scrapeVercel(page, reporter) {
         console.log('  ✅ Access Vercel Dashboard/Analytics');
 
         if (targetUrl.includes('/analytics')) {
-            try {
-                // Debug: Dump Body Text to see what's actually rendered
-                const bodyText = await page.innerText('body');
-                const cleanBody = bodyText.replace(/\n+/g, '\n');
+            let attempt = 0;
+            const maxRetries = 3;
+            let scrapeSuccess = false;
 
-                // console.log('--- BODY TEXT START ---');
-                // console.log(cleanBody.slice(0, 1000)); 
-                // console.log('--- BODY TEXT END ---');
+            while (attempt < maxRetries && !scrapeSuccess) {
+                attempt++;
+                try {
+                    console.log(`  🔄 Attempt ${attempt}/${maxRetries} to scrape Vercel data...`);
 
-                // Heuristic: Parse sections based on headers visible in the screenshot/dashboard
-
-                // Helper to extract top item from a section
-                const extractTopItem = (text, header, stopHeader) => {
-                    // Find text between header and stopHeader
-                    const startIndex = text.indexOf(header);
-                    if (startIndex === -1) return 'N/A';
-
-                    let endIndex = -1;
-                    if (stopHeader && stopHeader !== 'End') {
-                        endIndex = text.indexOf(stopHeader, startIndex);
+                    if (attempt > 1) {
+                        await page.reload({ waitUntil: 'domcontentloaded' });
+                        await page.waitForTimeout(5000); // Wait for hydration
                     }
 
-                    const substring = endIndex !== -1
-                        ? text.slice(startIndex + header.length, endIndex)
-                        : text.slice(startIndex + header.length);
+                    // Debug: Dump Body Text to see what's actually rendered
+                    const bodyText = await page.innerText('body');
+                    const cleanBody = bodyText.replace(/\n+/g, '\n');
 
-                    // Split by lines and take the first non-header, non-empty line that looks like data
-                    const lines = substring.split('\n')
-                        .map(l => l.trim())
-                        .filter(l => l.length > 0 && !['Routes', 'Hostnames', 'UTM Parameters', 'Browsers', 'Visitors', 'VISITORS', 'Page Views', 'Bounce Rate'].includes(l));
+                    // console.log('--- BODY TEXT START ---');
+                    // console.log(cleanBody.slice(0, 1000));
+                    // console.log('--- BODY TEXT END ---');
 
-                    if (lines.length > 0) {
-                        // Usually format is "ItemName Count" or "ItemName percentage"
-                        // Try to grab top 3
-                        return lines.slice(0, 3).join(', ');
+                    // Heuristic: Parse sections based on headers visible in the screenshot/dashboard
+
+                    // Helper to extract top item from a section
+                    const extractTopItem = (text, header, stopHeader) => {
+                        // Find text between header and stopHeader
+                        const startIndex = text.indexOf(header);
+                        if (startIndex === -1) return 'N/A';
+
+                        let endIndex = -1;
+                        if (stopHeader && stopHeader !== 'End') {
+                            endIndex = text.indexOf(stopHeader, startIndex);
+                        }
+
+                        const substring = endIndex !== -1
+                            ? text.slice(startIndex + header.length, endIndex)
+                            : text.slice(startIndex + header.length);
+
+                        // Split by lines and take the first non-header, non-empty line that looks like data
+                        const lines = substring.split('\n')
+                            .map(l => l.trim())
+                            .filter(l => l.length > 0 && !['Routes', 'Hostnames', 'UTM Parameters', 'Browsers', 'Visitors', 'VISITORS', 'Page Views', 'Bounce Rate'].includes(l));
+
+                        if (lines.length > 0) {
+                            // Usually format is "ItemName Count" or "ItemName percentage"
+                            // Try to grab top 3
+                            return lines.slice(0, 3).join(', ');
+                        }
+                        return 'No data';
+                    };
+
+                    // 1. Basic Stats
+                    let visitors = 'N/A';
+                    const visitMatch = cleanBody.match(/Visitors\s*\n\s*([\d,.]+)/i);
+                    if (visitMatch) visitors = visitMatch[1];
+
+                    const viewMatch = cleanBody.match(/Page Views\s*\n\s*([\d,.]+)/i);
+                    const pageViews = viewMatch ? viewMatch[1] : 'N/A';
+
+                    const bounceMatch = cleanBody.match(/Bounce Rate\s*\n\s*([\d,.]+%?)/i);
+                    const bounceRate = bounceMatch ? bounceMatch[1] : 'N/A';
+
+                    // Check if critical data is missing (User defined error condition)
+                    if (visitors === 'N/A') {
+                        console.warn(`  ⚠️ Attempt ${attempt}: Visitors data is N/A (Load error?)`);
+                        if (attempt === maxRetries) {
+                            throw new Error('Visitors data remains N/A after retries');
+                        }
+                        continue; // Retry
                     }
-                    return 'No data';
-                };
 
-                // 1. Basic Stats
-                let visitors = 'N/A';
-                const visitMatch = cleanBody.match(/Visitors\s*\n\s*([\d,.]+)/i);
-                if (visitMatch) visitors = visitMatch[1];
+                    // 2. Advanced Stats (Heuristic parsing)
+                    const topPages = extractTopItem(cleanBody, 'Pages', 'Referrers');
+                    const referrers = extractTopItem(cleanBody, 'Referrers', 'Countries');
+                    const countries = extractTopItem(cleanBody, 'Countries', 'Devices');
+                    const devices = extractTopItem(cleanBody, 'Devices', 'Operating Systems');
+                    const os = extractTopItem(cleanBody, 'Operating Systems', 'End');
 
-                const viewMatch = cleanBody.match(/Page Views\s*\n\s*([\d,.]+)/i);
-                const pageViews = viewMatch ? viewMatch[1] : 'N/A';
+                    const currentStats = {
+                        visitors,
+                        pageViews,
+                        bounceRate,
+                        topPages,
+                        referrers,
+                        countries,
+                        devices,
+                        os
+                    };
 
-                const bounceMatch = cleanBody.match(/Bounce Rate\s*\n\s*([\d,.]+%?)/i);
-                const bounceRate = bounceMatch ? bounceMatch[1] : 'N/A';
+                    console.log('  📊 Current Vercel Stats:', JSON.stringify(currentStats, null, 2));
 
-                // 2. Advanced Stats (Heuristic parsing)
-                // Note: The text dump order depends on DOM flow. We look for keywords.
+                    // Compare with Cache
+                    const isDifferent = JSON.stringify(currentStats) !== JSON.stringify(cachedStats);
 
-                // Pages (under "Pages" tab)
-                // Use robust regex to find the section if simple split fails, but simple split is safer for now
-                const topPages = extractTopItem(cleanBody, 'Pages', 'Referrers');
-                const referrers = extractTopItem(cleanBody, 'Referrers', 'Countries');
-                const countries = extractTopItem(cleanBody, 'Countries', 'Devices');
-                const devices = extractTopItem(cleanBody, 'Devices', 'Operating Systems');
-                const os = extractTopItem(cleanBody, 'Operating Systems', 'End');
-
-                const currentStats = {
-                    visitors,
-                    pageViews,
-                    bounceRate,
-                    topPages,
-                    referrers,
-                    countries,
-                    devices,
-                    os
-                };
-
-                console.log('  📊 Current Vercel Stats:', JSON.stringify(currentStats, null, 2));
-
-                // Compare with Cache
-                const isDifferent = JSON.stringify(currentStats) !== JSON.stringify(cachedStats);
-
-                // Check if we have ANY valid data
-                const hasValidData =
-                    visitors !== 'N/A' ||
-                    pageViews !== 'N/A' ||
-                    (topPages !== 'N/A' && topPages !== 'No data') ||
-                    (countries !== 'N/A' && countries !== 'No data') ||
-                    (devices !== 'N/A' && devices !== 'No data');
-
-                if (hasValidData) {
-                    if (isDifferent) {
-                        console.log('  🔔 Stats changed. Sending notification.');
-                        const message = `📈 *Vercel Analytics Report* (24h)
+                    if (visitors !== 'N/A' || pageViews !== 'N/A') {
+                        if (isDifferent) {
+                            console.log('  🔔 Stats changed. Sending notification.');
+                            const message = `📈 *Vercel Analytics Report* (24h)
 👥 *Traffic*:
 • Visitors: ${visitors}
 • Views: ${pageViews}
@@ -144,21 +154,24 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
 • OS: ${os}
 • Referrers: ${referrers}`;
 
-                        await reporter.sendStatus(message);
+                            await reporter.sendStatus(message);
 
-                        // Update Cache
-                        fs.writeFileSync(CONFIG.paths.vercelCache, JSON.stringify(currentStats, null, 2));
-                    } else {
-                        console.log('  Draws 💤 Stats identical to cache. Skipping notification.');
+                            // Update Cache
+                            fs.writeFileSync(CONFIG.paths.vercelCache, JSON.stringify(currentStats, null, 2));
+                        } else {
+                            console.log('  Draws 💤 Stats identical to cache. Skipping notification.');
+                        }
                     }
-                } else {
-                    console.log('  ℹ️ Could not find meaningful analytics data (All fields N/A or No data).');
-                }
 
-            } catch (e) {
-                console.log(`  ⚠️ Could not scrape analytics data: ${e.message}`);
-                const title = await page.title();
-                console.log(`  Page Title: ${title}`);
+                    scrapeSuccess = true; // Mark as success to exit loop
+
+                } catch (e) {
+                    console.log(`  ⚠️ Attempt ${attempt} failed: ${e.message}`);
+                    if (attempt === maxRetries) {
+                        console.error('  ❌ All retries failed for Vercel Scraper.');
+                        await reporter.sendError(`⚠️ Vercel Scraper Failed: ${e.message}`);
+                    }
+                }
             }
         }
 

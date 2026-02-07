@@ -187,7 +187,15 @@ async function main() {
 
         // Monitor Vercel
         if (platform === 'all' || platform === 'vercel') {
-            await scrapeVercel(page, reporter);
+            try {
+                console.log('⏳ Starting Vercel scrape with 2m timeout...');
+                await Promise.race([
+                    scrapeVercel(page, reporter),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Vercel scrape timed out (2m)')), 120000))
+                ]);
+            } catch (e) {
+                console.error(`  ⚠️ Vercel scrape skipped due to timeout/error: ${e.message}`);
+            }
         }
 
         // Monitor Motchillki
