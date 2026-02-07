@@ -48,7 +48,7 @@ const CONFIG = {
     },
     cloudflare: {
         accountId: '05bdf9a77d8976b78faf594736063c5d',
-        apiToken: process.env.CLOUDFLARE_API_TOKEN
+        apiToken: process.env.CLOUDFLARE_API_KEY
     }
 };
 
