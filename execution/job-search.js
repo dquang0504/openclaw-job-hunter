@@ -30,6 +30,7 @@ const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin')
 const { scrapeFacebook } = require('./scrapers/facebook');
 const { scrapeIndeed } = require('./scrapers/indeed');
 const { scrapeVercel } = require('./scrapers/vercel');
+const { scrapeCloudflare } = require('./scrapers/cloudflare');
 const { scrapeMotchillki } = require('./scrapers/motchillki');
 
 // =============================================================================
@@ -195,6 +196,19 @@ async function main() {
                 ]);
             } catch (e) {
                 console.error(`  ⚠️ Vercel scrape skipped due to timeout/error: ${e.message}`);
+            }
+        }
+
+        // Monitor Cloudflare
+        if (platform === 'all' || platform === 'cloudflare') {
+            try {
+                console.log('⏳ Starting Cloudflare check with 30s timeout...');
+                await Promise.race([
+                    scrapeCloudflare(reporter),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Cloudflare timed out (30s)')), 30000))
+                ]);
+            } catch (e) {
+                console.error(`  ⚠️ Cloudflare check skipped: ${e.message}`);
             }
         }
 

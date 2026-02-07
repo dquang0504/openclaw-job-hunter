@@ -43,7 +43,12 @@ const CONFIG = {
         logs: path.join(__dirname, '..', 'logs'),
         screenshots: path.join(__dirname, '..', '.tmp', 'screenshots'),
         seenJobs: path.join(__dirname, '..', 'logs', 'seen-jobs.json'),
-        vercelCache: path.join(__dirname, '..', 'logs', 'vercel-cache.json')
+        vercelCache: path.join(__dirname, '..', 'logs', 'vercel-cache.json'),
+        cloudflareCache: path.join(__dirname, '..', 'logs', 'cloudflare-cache.json')
+    },
+    cloudflare: {
+        accountId: '05bdf9a77d8976b78faf594736063c5d',
+        apiToken: process.env.CLOUDFLARE_API_TOKEN
     }
 };
 
