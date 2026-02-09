@@ -105,10 +105,24 @@ async function scrapeFacebook(page, reporter) {
             const posts = await page.locator(postSelector).all();
             console.log(`  📄 Found ${posts.length} visible posts`);
 
-            for (const post of posts.slice(0, 3)) { // Check top 3
+            // We'll try to collect up to 3 valid posts, checking up to 10 sections
+            const maxValidPosts = 3;
+            const maxAttempts = Math.min(10, posts.length);
+            let validPostsCount = 0;
+
+            for (let i = 0; i < maxAttempts && validPostsCount < maxValidPosts; i++) {
+                const post = posts[i];
                 try {
-                    // Extract Text
+                    // Extract Text and HTML for profile detection
                     const text = await post.innerText().catch(() => '');
+                    const outerHtml = await post.evaluate(el => el.outerHTML).catch(() => '');
+
+                    // 🚫 PROFILE DETECTION: Skip if this is a member profile, not a post
+                    if (outerHtml.includes('View profile') || outerHtml.includes('Add friend')) {
+                        console.log(`    ⏭️ Skipping member profile (detected "View profile" or "Add friend")`);
+                        continue;
+                    }
+
                     if (text.length < 50) continue;
 
                     const textLower = text.toLowerCase();
@@ -135,7 +149,7 @@ async function scrapeFacebook(page, reporter) {
                     try {
                         // Strategy: Get ALL links in the post card and find the one that looks like a permalink
                         const allLinks = await post.locator('a').all();
-                        
+
                         for (const link of allLinks) {
                             const href = await link.getAttribute('href');
                             if (!href) continue;
@@ -148,7 +162,7 @@ async function scrapeFacebook(page, reporter) {
                                     // Remove tracking params
                                     urlObj.search = '';
                                     urlStr = urlObj.toString();
-                                    
+
                                     // If we found a good one, break
                                     if (urlStr.includes('/posts/') || urlStr.includes('/permalink/')) {
                                         break;
@@ -223,6 +237,7 @@ async function scrapeFacebook(page, reporter) {
                     };
 
                     jobs.push(job);
+                    validPostsCount++; // Increment valid posts counter
                     console.log(`    ✅ Potential Post: ${job.title.slice(0, 40)}...`);
 
                 } catch (e) {
