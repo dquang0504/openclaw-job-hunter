@@ -25,11 +25,11 @@ async function scrapeFacebook(page, reporter) {
             // Allow single keyword 'golang' as per config
             const keyword = 'golang';
 
-            // Strategy: Visit Group Page first to set cookies/referer then go to Search
-            const cleanGroupUrl = groupUrl.replace(/\/$/, '');
+            // Strategy: Use MOBILE Facebook for simpler HTML structure
+            const cleanGroupUrl = groupUrl.replace(/\/$/, '').replace('www.facebook.com', 'm.facebook.com');
             const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(keyword)}&filters=${RECENT_POSTS_FILTER}`;
 
-            console.log(`  👥 Visiting Group: ${cleanGroupUrl}`);
+            console.log(`  👥 Visiting Group (Mobile): ${cleanGroupUrl}`);
 
             // 1. Go to Group Home first (more natural)
             // Use user-provided cookies validation
@@ -87,14 +87,12 @@ async function scrapeFacebook(page, reporter) {
             }
 
             // Scroll a bit to load results - SLOWLY
-            await humanScroll(page, 5); // Scroll more
+            await humanScroll(page, 3); // Less scrolling needed on mobile
             await randomDelay(2000, 4000);
 
-            // Standard feed post selector - try updated selectors
-            // div[role="article"] is standard
-            // div[data-ad-preview="message"] is for ads/posts
-            // div.x1yztbdb is a common obfuscated class for feed units
-            const postSelector = 'div[role="article"], div[data-ad-preview="message"], div[class*="feed"] div[role="article"]';
+            // Mobile Facebook uses simpler selectors
+            // Posts are usually in <article> or div with data-ft attribute
+            const postSelector = 'article, div[data-ft]';
 
             try {
                 await page.waitForSelector(postSelector, { timeout: 10000 });
@@ -158,76 +156,102 @@ async function scrapeFacebook(page, reporter) {
                         continue;
                     }
 
-                    // Extract Link (Updated Strategy)
-                    // 1. Direct Extraction from Timestamp Link (preferred)
-                    // The timestamp usually has role="link" and contains the direct permalink with messy params
+                    // Extract Link - Mobile Facebook has simpler structure
                     let urlStr = null;
+
+                    console.log(`    🔍 DEBUG: Starting URL extraction for post (Mobile)...`);
+
+                    // STRATEGY 1: Check data-ft attribute (mobile-specific)
                     try {
-                        // Strategy: Get ALL links in the post card and find the one that looks like a permalink
-                        const allLinks = await post.locator('a').all();
+                        const dataFt = await post.getAttribute('data-ft');
+                        if (dataFt) {
+                            console.log(`    🔍 DEBUG: Found data-ft attribute: ${dataFt.slice(0, 150)}...`);
 
-                        for (const link of allLinks) {
-                            const href = await link.getAttribute('href');
-                            if (!href) continue;
+                            // Parse data-ft JSON to extract story_fbid or top_level_post_id
+                            try {
+                                const ftData = JSON.parse(dataFt);
+                                const postId = ftData.mf_story_key || ftData.top_level_post_id || ftData.content_owner_id_new;
 
-                            // Check if it matches a post pattern
-                            if (href.includes('/posts/') || href.includes('/permalink/')) {
-                                // Double check it's not a generic group link if possible, but /posts/ usually implies specific
-                                try {
-                                    const urlObj = new URL(href, 'https://www.facebook.com');
-                                    // Remove tracking params
-                                    urlObj.search = '';
-                                    urlStr = urlObj.toString();
+                                if (postId) {
+                                    // Extract group ID from URL
+                                    const groupMatch = cleanGroupUrl.match(/groups\/([^\/]+)/);
+                                    const groupId = groupMatch ? groupMatch[1] : null;
 
-                                    // If we found a good one, break
-                                    if (urlStr.includes('/posts/') || urlStr.includes('/permalink/')) {
-                                        break;
+                                    if (groupId) {
+                                        // Convert to desktop URL for better compatibility
+                                        urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
+                                        console.log(`    ✅ Extracted URL from data-ft: ${urlStr}`);
                                     }
-                                } catch (e) {
-                                    // Invalid URL, skip
                                 }
+                            } catch (e) {
+                                console.log(`    ⚠️ DEBUG: Failed to parse data-ft JSON: ${e.message}`);
                             }
                         }
                     } catch (e) {
-                        // Ignore extraction errors
+                        console.log(`    ⚠️ DEBUG: data-ft strategy failed: ${e.message}`);
                     }
 
-                    // 2. Fallback: ID Extraction and Reconstruction
+                    // STRATEGY 2: Find links in mobile HTML (much simpler than desktop)
                     if (!urlStr) {
-                        let postId = null;
+                        const allAnchors = await post.locator('a').all();
+                        console.log(`    🔍 DEBUG: Found ${allAnchors.length} anchor tags in mobile post`);
 
-                        // Method A: Check all links for /posts/123 or /permalink/123
-                        const allLinks = await post.locator('a[href*="/groups/"], a[href*="/permalink/"]').all();
-                        for (const link of allLinks) {
-                            const href = await link.getAttribute('href');
+                        for (const anchor of allAnchors) {
+                            const href = await anchor.getAttribute('href');
                             if (!href) continue;
 
-                            // Match ID
-                            const match = href.match(/\/posts\/(\d+)/) || href.match(/\/permalink\/(\d+)/) || href.match(/multi_permalinks=(\d+)/);
-                            if (match) {
-                                postId = match[1];
-                                break;
+                            console.log(`    🔍 DEBUG: Checking href: ${href.slice(0, 100)}...`);
+
+                            // Mobile links are usually cleaner: /story.php?story_fbid=... or /groups/.../permalink/...
+                            if (href.includes('story_fbid=') || href.includes('/permalink/') || href.includes('/posts/')) {
+                                try {
+                                    // Extract story_fbid from URL
+                                    let postId = null;
+                                    let groupId = null;
+
+                                    // Pattern 1: story.php?story_fbid=123&id=456
+                                    const storyMatch = href.match(/story_fbid=(\d+)/);
+                                    const idMatch = href.match(/[&?]id=(\d+)/);
+
+                                    if (storyMatch) {
+                                        postId = storyMatch[1];
+                                        groupId = idMatch ? idMatch[1] : null;
+                                    }
+
+                                    // Pattern 2: /groups/123/permalink/456/
+                                    const permalinkMatch = href.match(/\/groups\/([^\/]+)\/permalink\/(\d+)/);
+                                    if (permalinkMatch) {
+                                        groupId = permalinkMatch[1];
+                                        postId = permalinkMatch[2];
+                                    }
+
+                                    // Pattern 3: /groups/123/posts/456/
+                                    const postsMatch = href.match(/\/groups\/([^\/]+)\/posts\/(\d+)/);
+                                    if (postsMatch) {
+                                        groupId = postsMatch[1];
+                                        postId = postsMatch[2];
+                                    }
+
+                                    if (postId && groupId) {
+                                        // Convert to desktop URL
+                                        urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
+                                        console.log(`    ✅ Extracted URL from mobile link: ${urlStr}`);
+                                        break;
+                                    } else if (postId) {
+                                        // Use group from cleanGroupUrl
+                                        const groupMatch = cleanGroupUrl.match(/groups\/([^\/]+)/);
+                                        groupId = groupMatch ? groupMatch[1] : null;
+
+                                        if (groupId) {
+                                            urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
+                                            console.log(`    ✅ Extracted URL (partial match): ${urlStr}`);
+                                            break;
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.log(`    ⚠️ DEBUG: URL extraction failed: ${e.message}`);
+                                }
                             }
-                        }
-
-                        // Method B: Regex search in the element HTML (for hidden IDs in data-ft)
-                        if (!postId) {
-                            const outerHtml = await post.evaluate(el => el.outerHTML);
-
-                            // Look for "top_level_post_id":"12345" or "story_fbid":[12345]
-                            const idMatch = outerHtml.match(/"top_level_post_id"\s*:\s*"(\d+)"/) ||
-                                outerHtml.match(/"story_fbid"\s*:\s*\[?(\d+)\]?/) ||
-                                outerHtml.match(/id="feed_subtitle_(\d+)/);
-
-                            if (idMatch) {
-                                postId = idMatch[1];
-                            }
-                        }
-
-                        if (postId) {
-                            // Construct CLEAN URL
-                            const groupSlug = cleanGroupUrl.split('/groups/')[1]?.split('/')[0] || cleanGroupUrl.split('/').pop();
-                            urlStr = `https://www.facebook.com/groups/${groupSlug}/posts/${postId}/`;
                         }
                     }
 
@@ -236,18 +260,19 @@ async function scrapeFacebook(page, reporter) {
                         urlStr = 'https://www.facebook.com' + urlStr;
                     }
 
-                    // 🚫 CRITICAL: Reject if we don't have a specific post URL
-                    if (!urlStr || urlStr === groupUrl || !urlStr.includes('/posts/') && !urlStr.includes('/permalink/')) {
+                    // 🔧 TEMPORARY WORKAROUND: If we can't extract specific URL, use group URL
+                    if (!urlStr || urlStr === groupUrl || (!urlStr.includes('/posts/') && !urlStr.includes('/permalink/'))) {
+                        urlStr = cleanGroupUrl.replace('m.facebook.com', 'www.facebook.com'); // Convert back to desktop
                         const preview = text.slice(0, 80).replace(/\n/g, ' ');
-                        console.log(`    ⚠️ Skipping post - could not extract specific post URL`);
+                        console.log(`    ⚠️ Using group URL as fallback`);
                         console.log(`       Preview: "${preview}..."`);
-                        continue;
                     }
 
                     const job = {
                         title: text.split('\n')[0].slice(0, 100), // First line as title
                         company: 'Facebook Group',
-                        url: urlStr, // ONLY specific post URLs, never fallback to group URL
+                        url: urlStr,
+                        preview: text.slice(0, 100).trim(), // NEW: Preview text for manual search
                         salary: 'Negotiable',
                         location: isTarget ? (textLower.includes('cần thơ') ? 'Cần Thơ' : 'Remote') : 'Unknown',
                         source: 'Facebook',

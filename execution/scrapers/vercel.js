@@ -30,9 +30,35 @@ async function scrapeVercel(page, reporter) {
             await page.waitForSelector('text=Visitors', { timeout: 10000 });
         } catch (e) { }
 
-        // Check login
-        if (page.url().includes('login') || await page.locator('input[name="email"]').isVisible()) {
-            console.log('  ❌ Not logged in to Vercel. Skipping.');
+        // Check login - wrap in try-catch to handle closed page/browser
+        try {
+            // Check if page is still open
+            if (page.isClosed()) {
+                console.log('  ❌ Page was closed. Skipping Vercel scraper.');
+                return;
+            }
+
+            const isLoginPage = page.url().includes('login');
+            let hasEmailInput = false;
+
+            try {
+                hasEmailInput = await page.locator('input[name="email"]').isVisible({ timeout: 2000 });
+            } catch (e) {
+                // isVisible() can throw if page is closed or navigated
+                if (e.message.includes('closed')) {
+                    console.log('  ❌ Page/browser was closed during login check. Skipping.');
+                    return;
+                }
+                // Otherwise, assume no email input
+                hasEmailInput = false;
+            }
+
+            if (isLoginPage || hasEmailInput) {
+                console.log('  ❌ Not logged in to Vercel. Skipping.');
+                return;
+            }
+        } catch (e) {
+            console.log(`  ❌ Error checking login state: ${e.message}. Skipping.`);
             return;
         }
 

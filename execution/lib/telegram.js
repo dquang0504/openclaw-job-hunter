@@ -21,6 +21,8 @@ class TelegramReporter {
             `📝 ${this.escapeMarkdown(job.techStack || 'N/A')}`,
             `📍 ${this.escapeMarkdown(job.location || 'N/A')}`,
             job.postedDate ? `📅 ${this.escapeMarkdown(job.postedDate)}` : '',
+            // Add preview for Facebook posts (for manual search)
+            (job.source === 'Facebook' && job.preview) ? `🔍 Preview: ${this.escapeMarkdown(job.preview)}` : '',
             // Add description for Facebook posts
             (job.source === 'Facebook' && job.description) ? `📄 ${this.escapeMarkdown(job.description)}` : '',
             `🤖 Match Score: ${job.matchScore}/10`,

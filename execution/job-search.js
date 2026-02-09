@@ -31,7 +31,6 @@ const { scrapeFacebook } = require('./scrapers/facebook');
 const { scrapeIndeed } = require('./scrapers/indeed');
 const { scrapeVercel } = require('./scrapers/vercel');
 const { scrapeCloudflare } = require('./scrapers/cloudflare');
-const { scrapeMotchillki } = require('./scrapers/motchillki');
 
 // =============================================================================
 // MAIN EXECUTION
@@ -210,11 +209,6 @@ async function main() {
             } catch (e) {
                 console.error(`  ⚠️ Cloudflare check skipped: ${e.message}`);
             }
-        }
-
-        // Monitor Motchillki
-        if (platform === 'all' || platform === 'motchillki') {
-            await scrapeMotchillki(page, reporter);
         }
 
         console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
