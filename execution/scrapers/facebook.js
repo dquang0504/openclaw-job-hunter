@@ -25,11 +25,11 @@ async function scrapeFacebook(page, reporter) {
             // Allow single keyword 'golang' as per config
             const keyword = 'golang';
 
-            // Strategy: Use MOBILE Facebook for simpler HTML structure
-            const cleanGroupUrl = groupUrl.replace(/\/$/, '').replace('www.facebook.com', 'm.facebook.com');
+            // Strategy: Use DESKTOP Facebook (more stable selectors)
+            const cleanGroupUrl = groupUrl.replace(/\/$/, '').replace('m.facebook.com', 'www.facebook.com');
             const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(keyword)}&filters=${RECENT_POSTS_FILTER}`;
 
-            console.log(`  👥 Visiting Group (Mobile): ${cleanGroupUrl}`);
+            console.log(`  👥 Visiting Group: ${cleanGroupUrl}`);
 
             // 1. Go to Group Home first (more natural)
             // Use user-provided cookies validation
@@ -90,9 +90,8 @@ async function scrapeFacebook(page, reporter) {
             await humanScroll(page, 3); // Less scrolling needed on mobile
             await randomDelay(2000, 4000);
 
-            // Mobile Facebook uses simpler selectors
-            // Posts are usually in <article> or div with data-ft attribute
-            const postSelector = 'article, div[data-ft]';
+            // Desktop Facebook uses div[role="article"] for posts
+            const postSelector = 'div[role="article"]';
 
             try {
                 await page.waitForSelector(postSelector, { timeout: 10000 });
@@ -156,117 +155,10 @@ async function scrapeFacebook(page, reporter) {
                         continue;
                     }
 
-                    // Extract Link - Mobile Facebook has simpler structure
-                    let urlStr = null;
+                    // Use group URL directly - simpler and more reliable
+                    // Users can search for the post using the preview text
+                    const urlStr = cleanGroupUrl;
 
-                    console.log(`    🔍 DEBUG: Starting URL extraction for post (Mobile)...`);
-
-                    // STRATEGY 1: Check data-ft attribute (mobile-specific)
-                    try {
-                        const dataFt = await post.getAttribute('data-ft');
-                        if (dataFt) {
-                            console.log(`    🔍 DEBUG: Found data-ft attribute: ${dataFt.slice(0, 150)}...`);
-
-                            // Parse data-ft JSON to extract story_fbid or top_level_post_id
-                            try {
-                                const ftData = JSON.parse(dataFt);
-                                const postId = ftData.mf_story_key || ftData.top_level_post_id || ftData.content_owner_id_new;
-
-                                if (postId) {
-                                    // Extract group ID from URL
-                                    const groupMatch = cleanGroupUrl.match(/groups\/([^\/]+)/);
-                                    const groupId = groupMatch ? groupMatch[1] : null;
-
-                                    if (groupId) {
-                                        // Convert to desktop URL for better compatibility
-                                        urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
-                                        console.log(`    ✅ Extracted URL from data-ft: ${urlStr}`);
-                                    }
-                                }
-                            } catch (e) {
-                                console.log(`    ⚠️ DEBUG: Failed to parse data-ft JSON: ${e.message}`);
-                            }
-                        }
-                    } catch (e) {
-                        console.log(`    ⚠️ DEBUG: data-ft strategy failed: ${e.message}`);
-                    }
-
-                    // STRATEGY 2: Find links in mobile HTML (much simpler than desktop)
-                    if (!urlStr) {
-                        const allAnchors = await post.locator('a').all();
-                        console.log(`    🔍 DEBUG: Found ${allAnchors.length} anchor tags in mobile post`);
-
-                        for (const anchor of allAnchors) {
-                            const href = await anchor.getAttribute('href');
-                            if (!href) continue;
-
-                            console.log(`    🔍 DEBUG: Checking href: ${href.slice(0, 100)}...`);
-
-                            // Mobile links are usually cleaner: /story.php?story_fbid=... or /groups/.../permalink/...
-                            if (href.includes('story_fbid=') || href.includes('/permalink/') || href.includes('/posts/')) {
-                                try {
-                                    // Extract story_fbid from URL
-                                    let postId = null;
-                                    let groupId = null;
-
-                                    // Pattern 1: story.php?story_fbid=123&id=456
-                                    const storyMatch = href.match(/story_fbid=(\d+)/);
-                                    const idMatch = href.match(/[&?]id=(\d+)/);
-
-                                    if (storyMatch) {
-                                        postId = storyMatch[1];
-                                        groupId = idMatch ? idMatch[1] : null;
-                                    }
-
-                                    // Pattern 2: /groups/123/permalink/456/
-                                    const permalinkMatch = href.match(/\/groups\/([^\/]+)\/permalink\/(\d+)/);
-                                    if (permalinkMatch) {
-                                        groupId = permalinkMatch[1];
-                                        postId = permalinkMatch[2];
-                                    }
-
-                                    // Pattern 3: /groups/123/posts/456/
-                                    const postsMatch = href.match(/\/groups\/([^\/]+)\/posts\/(\d+)/);
-                                    if (postsMatch) {
-                                        groupId = postsMatch[1];
-                                        postId = postsMatch[2];
-                                    }
-
-                                    if (postId && groupId) {
-                                        // Convert to desktop URL
-                                        urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
-                                        console.log(`    ✅ Extracted URL from mobile link: ${urlStr}`);
-                                        break;
-                                    } else if (postId) {
-                                        // Use group from cleanGroupUrl
-                                        const groupMatch = cleanGroupUrl.match(/groups\/([^\/]+)/);
-                                        groupId = groupMatch ? groupMatch[1] : null;
-
-                                        if (groupId) {
-                                            urlStr = `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
-                                            console.log(`    ✅ Extracted URL (partial match): ${urlStr}`);
-                                            break;
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.log(`    ⚠️ DEBUG: URL extraction failed: ${e.message}`);
-                                }
-                            }
-                        }
-                    }
-
-                    // Final cleanup
-                    if (urlStr && urlStr.startsWith('/')) {
-                        urlStr = 'https://www.facebook.com' + urlStr;
-                    }
-
-                    // 🔧 TEMPORARY WORKAROUND: If we can't extract specific URL, use group URL
-                    if (!urlStr || urlStr === groupUrl || (!urlStr.includes('/posts/') && !urlStr.includes('/permalink/'))) {
-                        urlStr = cleanGroupUrl.replace('m.facebook.com', 'www.facebook.com'); // Convert back to desktop
-                        const preview = text.slice(0, 80).replace(/\n/g, ' ');
-                        console.log(`    ⚠️ Using group URL as fallback`);
-                        console.log(`       Preview: "${preview}..."`);
-                    }
 
                     const job = {
                         title: text.split('\n')[0].slice(0, 100), // First line as title
