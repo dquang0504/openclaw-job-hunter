@@ -123,7 +123,8 @@ async function scrapeFacebook(page, reporter) {
                         continue;
                     }
 
-                    if (text.length < 50) continue;
+                    // No minimum text length requirement - even short quality posts are valuable!
+                    if (!text || text.trim().length === 0) continue;
 
                     const textLower = text.toLowerCase();
 
@@ -133,14 +134,29 @@ async function scrapeFacebook(page, reporter) {
                     // 2. Strict Exclude (Experience > 2y)
                     if (CONFIG.excludeRegex.test(text)) continue;
 
+                    // 2.5. BOOST: Prioritize fresher/intern/junior posts (includeRegex)
+                    const isFresherPost = CONFIG.includeRegex.test(text);
+                    if (isFresherPost) {
+                        console.log(`    🎯 FRESHER/JUNIOR post detected!`);
+                    }
+
                     // 3. Location Filter
-                    const isTarget = textLower.includes('remote') || textLower.includes('từ xa') || textLower.includes('cần thơ') || textLower.includes('can tho');
-                    const isHanoiHCM = textLower.includes('hà nội') || textLower.includes('hồ chí minh') || textLower.includes('hcm') || textLower.includes('ho chi minh');
+                    const isTarget = textLower.includes('remote') || textLower.includes('từ xa') ||
+                        textLower.includes('cần thơ') || textLower.includes('can tho') ||
+                        textLower.includes('online');
+                    const isHanoiHCM = textLower.includes('hà nội') || textLower.includes('hồ chí minh') ||
+                        textLower.includes('hcm') || textLower.includes('ho chi minh');
 
                     if (!isTarget && isHanoiHCM) continue;
 
-                    // 4. Date Heuristic
-                    if (text.includes('2023') || text.includes('2022')) continue;
+                    // 4. Dynamic Date Heuristic (exclude old posts from previous years)
+                    const currentYear = new Date().getFullYear();
+                    const lastYear = currentYear - 1;
+                    const oldYearPattern = new RegExp(`\\b(${currentYear - 2}|${currentYear - 3}|${currentYear - 4})\\b`);
+                    if (oldYearPattern.test(text)) {
+                        console.log(`    ⏭️ Skipping old post (found year older than ${lastYear})`);
+                        continue;
+                    }
 
                     // Extract Link (Updated Strategy)
                     // 1. Direct Extraction from Timestamp Link (preferred)
@@ -212,9 +228,6 @@ async function scrapeFacebook(page, reporter) {
                             // Construct CLEAN URL
                             const groupSlug = cleanGroupUrl.split('/groups/')[1]?.split('/')[0] || cleanGroupUrl.split('/').pop();
                             urlStr = `https://www.facebook.com/groups/${groupSlug}/posts/${postId}/`;
-                        } else {
-                            // Fallback
-                            urlStr = groupUrl;
                         }
                     }
 
@@ -223,17 +236,26 @@ async function scrapeFacebook(page, reporter) {
                         urlStr = 'https://www.facebook.com' + urlStr;
                     }
 
+                    // 🚫 CRITICAL: Reject if we don't have a specific post URL
+                    if (!urlStr || urlStr === groupUrl || !urlStr.includes('/posts/') && !urlStr.includes('/permalink/')) {
+                        const preview = text.slice(0, 80).replace(/\n/g, ' ');
+                        console.log(`    ⚠️ Skipping post - could not extract specific post URL`);
+                        console.log(`       Preview: "${preview}..."`);
+                        continue;
+                    }
+
                     const job = {
                         title: text.split('\n')[0].slice(0, 100), // First line as title
                         company: 'Facebook Group',
-                        url: urlStr || groupUrl,
+                        url: urlStr, // ONLY specific post URLs, never fallback to group URL
                         salary: 'Negotiable',
                         location: isTarget ? (textLower.includes('cần thơ') ? 'Cần Thơ' : 'Remote') : 'Unknown',
                         source: 'Facebook',
                         techStack: 'Golang',
-                        description: text.slice(0, 300) + '...',
+                        description: text.slice(0, 300), // Extract preview text for Telegram
                         postedDate: 'Recent',
-                        matchScore: calculateMatchScore({ title: text, location: isTarget ? 'remote' : 'unknown' })
+                        matchScore: calculateMatchScore({ title: text, location: isTarget ? 'remote' : 'unknown' }),
+                        isFresher: isFresherPost // Flag for fresher/junior posts
                     };
 
                     jobs.push(job);

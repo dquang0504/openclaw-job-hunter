@@ -8,7 +8,7 @@ const CONFIG = {
     keywords: [
         'golang'
     ],
-    keywordRegex: /\b(golang|go\s+developer|go\s+backend|\bGo\b)\b/i,
+    keywordRegex: /\b(golang|go\s+developer|go\s+backend|\bGo\b|blockchain)\b/i,
     // Exclude > 2 years
     excludeRegex: /\b(senior|lead|manager|principal|staff|architect|(\d{2,}|[3-9])\s*(\+|plus)?\s*years?|2\+\s*years?)\b/i,
     includeRegex: /\b(fresher|intern|junior|entry[\s-]?level|graduate|trainee)\b/i,
@@ -27,6 +27,8 @@ const CONFIG = {
         'https://www.facebook.com/groups/1875985159376456', // 'Cần Thơ - IT Jobs'
         'https://www.facebook.com/groups/nodejs.php.python', // 'Tuyển dụng Backend Python, PHP, NodeJS, Golang'
         'https://www.facebook.com/groups/itjobsphp', // 'Tuyển Dụng IT - Việc làm Back-end Java, .NET, Golang, PHP, Python, NodeJS'
+        'https://www.facebook.com/groups/ithotjobs.tuyendungit.vieclamcntt.susudev', // IT Hot Jobs
+        'https://www.facebook.com/groups/465885632447300', // IT Jobs Group
     ],
 
     vercelUrl: 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h',
