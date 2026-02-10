@@ -49,7 +49,8 @@ async function testThreads() {
             });
 
             await context.addCookies(cleanCookies);
-            console.log(`🍪 Loaded ${cleanCookies.length} Threads cookies\n`);
+            console.log(`🍪 Loaded ${cleanCookies.length} Threads cookies`);
+            console.log(`   Domains: ${[...new Set(cleanCookies.map(c => c.domain))].join(', ')}\n`);
         } catch (e) {
             console.warn(`⚠️ Failed to load cookies: ${e.message}\n`);
         }
@@ -58,6 +59,24 @@ async function testThreads() {
     }
 
     const page = await context.newPage();
+
+    // Verify login status
+    console.log('🔐 Verifying login status...');
+    await page.goto('https://www.threads.net/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(3000);
+
+    const currentUrl = page.url();
+    const pageContent = await page.content();
+
+    console.log(`   Current URL: ${currentUrl}`);
+
+    if (currentUrl.includes('/login') || pageContent.includes('Log in with Instagram')) {
+        console.log('   ❌ NOT LOGGED IN - Cookies are invalid or missing Instagram cookies');
+        console.log('   💡 Solution: Export cookies while logged into Threads (include both .threads.net and .instagram.com domains)\n');
+    } else {
+        console.log('   ✅ LOGGED IN successfully\n');
+    }
+
     const reporter = new TelegramReporter();
 
     try {
