@@ -188,10 +188,10 @@ async function main() {
         // Monitor Vercel
         if (platform === 'all' || platform === 'vercel') {
             try {
-                console.log('⏳ Starting Vercel scrape with 2m timeout...');
+                console.log('⏳ Starting Vercel scrape with 1m timeout...');
                 await Promise.race([
                     scrapeVercel(page, reporter),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Vercel scrape timed out (2m)')), 120000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Vercel scrape timed out (1m)')), 60000))
                 ]);
             } catch (e) {
                 console.error(`  ⚠️ Vercel scrape skipped due to timeout/error: ${e.message}`);
@@ -299,19 +299,18 @@ async function main() {
         console.error('Fatal error:', error);
         await reporter.sendError(error.message);
     } finally {
+        // Save results BEFORE closing browser to avoid "Page/browser was closed" error
+        const safeTime = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+        const logFile = path.join(CONFIG.paths.logs, `job-search-${safeTime}.json`);
+
+        if (!fs.existsSync(CONFIG.paths.logs)) {
+            fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
+        }
+        fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
+        console.log(`\n📁 Results saved to ${logFile}`);
+
         await browser.close();
     }
-
-    // Save results
-    // Save results
-    const safeTime = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const logFile = path.join(CONFIG.paths.logs, `job-search-${safeTime}.json`);
-
-    if (!fs.existsSync(CONFIG.paths.logs)) {
-        fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
-    }
-    fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
-    console.log(`\n📁 Results saved to ${logFile}`);
 }
 
 main().catch(console.error);
