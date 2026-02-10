@@ -7,6 +7,11 @@ const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
 
 /**
+ * Helper: Normalize text to handle fancy fonts and accents
+ */
+const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/**
  * Scrape jobs from TopCV.vn
  * @param {import('playwright').Page} page 
  * @param {import('../lib/telegram')} reporter 
@@ -44,7 +49,6 @@ async function scrapeTopCV(page, reporter) {
                 await page.waitForTimeout(500);
 
                 // Check if "No suitable job" message is visible (User confirmed logic)
-                // If visible, it means the search returned 0 exact matches, and any cards below are "Suggested" jobs.
                 if (await page.locator('.none-suitable-job').isVisible()) {
                     console.log(`    ⚠️ No suitable jobs found (strict match)`);
                     continue;
@@ -76,18 +80,19 @@ async function scrapeTopCV(page, reporter) {
                             techStack: 'Golang'
                         };
 
-                        const jobText = `${job.title} ${job.company}`.toLowerCase();
-                        const locLower = job.location.toLowerCase();
+                        // Use Normalized text for checks
+                        const jobTextNorm = normalizeText(`${job.title} ${job.company}`);
+                        const locLower = normalizeText(job.location);
 
                         // 1. Strict Keyword Check
-                        if (!jobText.includes('go') && !jobText.includes('golang')) continue;
+                        if (!jobTextNorm.includes('go') && !jobTextNorm.includes('golang')) continue;
 
                         // 2. Strict Exclude (Experience)
-                        if (CONFIG.excludeRegex.test(jobText)) continue;
+                        if (CONFIG.excludeRegex.test(jobTextNorm)) continue;
 
                         // 3. Strict Location (Remote or Can Tho)
-                        const isTarget = locLower.includes('remote') || locLower.includes('từ xa') || locLower.includes('cần thơ') || locLower.includes('can tho');
-                        const isHanoiHCM = locLower.includes('hà nội') || locLower.includes('hồ chí minh') || locLower.includes('hcm') || locLower.includes('ho chi minh');
+                        const isTarget = locLower.includes('remote') || locLower.includes('tu xa') || locLower.includes('can tho');
+                        const isHanoiHCM = locLower.includes('ha noi') || locLower.includes('ho chi minh') || locLower.includes('hcm') || locLower.includes('saigon');
 
                         if (!isTarget && isHanoiHCM) continue;
 

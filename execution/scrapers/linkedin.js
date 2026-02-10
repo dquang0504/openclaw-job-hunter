@@ -18,6 +18,11 @@ const LINKEDIN_KEYWORDS = [
     'entry level golang'
 ];
 
+/**
+ * Helper: Normalize text to handle fancy fonts and accents
+ */
+const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 function buildSearchUrl(keyword) {
     const params = new URLSearchParams({
         keywords: keyword,
@@ -93,14 +98,16 @@ async function scrapeLinkedIn(page, reporter) {
 
                     if (!postText || postText.replace(/\s/g, '').length < 30) continue;
 
-                    const text = postText.toLowerCase().slice(0, 800);
+                    // Normalize
+                    const textRaw = postText.slice(0, 800);
+                    const text = normalizeText(postText.slice(0, 800));
 
                     // Check regex: job keywords + golang
                     const jobMatch = /\b(fresher|freshers|intern|internship|entry\s*level|junior|hiring|job|graduate|software\s*developer)\b/i.test(text);
                     const goMatch = /\b(golang|go\s*developer|go\s*backend|node\.?js)\b/i.test(text);
 
                     // Debug: show first 80 chars of each post
-                    console.log(`    [${i}] "${text.slice(0, 80).replace(/\n/g, ' ')}..." job=${jobMatch} go=${goMatch}`);
+                    console.log(`    [${i}] "${textRaw.slice(0, 80).replace(/\n/g, ' ')}..." job=${jobMatch} go=${goMatch}`);
 
                     if (!jobMatch || !goMatch) continue;
 
@@ -109,30 +116,30 @@ async function scrapeLinkedIn(page, reporter) {
                     const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}` : 'https://www.linkedin.com/feed';
 
                     // Extract author name (simplified)
-                    const authorMatch = postText.match(/^([A-Za-z\s]{5,30})/);
+                    const authorMatch = textRaw.match(/^([A-Za-z\s]{5,30})/);
                     const author = authorMatch ? authorMatch[1].trim() : 'LinkedIn User';
 
                     // Try to extract time text (e.g., "1d •")
-                    const timeMatch = postText.match(/(\d+[hdmw]\s*•)/);
+                    const timeMatch = textRaw.match(/(\d+[hdmw]\s*•)/);
                     const rawTime = timeMatch ? timeMatch[1].replace('•', '').trim() + ' ago' : 'Recently';
 
                     // Try basic location extraction
-                    const locMatch = postText.match(/(?:location|📍)\s*:?\s*([^\n.,]+)/i);
+                    const locMatch = text.match(/(?:location|📍)\s*:?\s*([^\n.,]+)/i);
                     const rawLocation = locMatch ? locMatch[1].trim() : 'Remote/Global'; // Default to Remote if not found
 
                     jobs.push({
-                        title: text.slice(0, 100) + '...',
-                        description: text.slice(0, 500), // Increased context for AI
+                        title: textRaw.slice(0, 100) + '...',
+                        description: textRaw.slice(0, 500),
                         company: author.slice(0, 40),
                         url: postUrl,
-                        location: rawLocation, // Use regex extracted or default
+                        location: rawLocation,
                         source: 'LinkedIn (Posts)',
                         techStack: 'Golang',
                         postedDate: rawTime,
                         matchScore: 8
                     });
 
-                    console.log(`    ✅ [8] ${author.slice(0, 25)} - ${text.slice(0, 40)}...`);
+                    console.log(`    ✅ [8] ${author.slice(0, 25)} - ${textRaw.slice(0, 40)}...`);
                 } catch (e) {
                     // Skip
                 }

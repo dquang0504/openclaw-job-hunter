@@ -8,243 +8,414 @@ const { randomDelay, humanScroll, mouseJiggle } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
 
 /**
- * Extract posts from Threads JSON data
- * @param {Object} data - Parsed JSON from script tag
- * @returns {Array} - Array of post objects
+ * Helper: Normalize text to handle fancy fonts and accents
+ * e.g. "𝐆𝐨𝐥𝐚𝐧𝐠" -> "golang", "Hà Nội" -> "ha noi"
+ */
+const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/**
+ * Helper: Format Unix timestamp to dd/mm/yyyy hh:mm:ss
+ */
+function formatExactDate(timestamp) {
+    if (!timestamp) return 'Unknown';
+    // Threads/Instagram timestamps are in seconds
+    const date = new Date(timestamp * 1000);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+}
+
+/**
+ * Helper: Extract Salary from text
+ */
+function extractSalary(text) {
+    const textNorm = normalizeText(text);
+
+    // Check for explicit "negotiable" or "thỏa thuận"
+    if (textNorm.includes('negotiable') || textNorm.includes('thoa thuan') || textNorm.includes('thu nhap hap dan') || textNorm.includes('luong hap dan')) {
+        return 'Negotiable';
+    }
+
+    // Regex for money patterns
+    const moneyRegex = /((?:\$|usd\s?)\d{3,5}|\d{1,3}\s?(?:tr|trieu|m)(?:\s?-\s?\d{1,3}\s?(?:tr|trieu|m))?|\d{3,5}\s?(?:\$|usd))/gi;
+    const matches = textNorm.match(moneyRegex);
+
+    if (matches && matches.length > 0) {
+        return matches[0].trim();
+    }
+
+    return 'Negotiable';
+}
+
+/**
+ * Helper: Extract Location from text
+ */
+function extractLocation(text) {
+    const textNorm = normalizeText(text);
+
+    if (textNorm.includes('remote') || textNorm.includes('tu xa') || textNorm.includes('wfh')) return 'Remote';
+    if (textNorm.match(/(hcm|ho chi minh|saigon|sai gon)/)) return 'Ho Chi Minh';
+    if (textNorm.match(/(ha noi|hanoi)/)) return 'Hanoi';
+    if (textNorm.match(/(da nang|danang)/)) return 'Da Nang';
+
+    return 'Unknown';
+}
+
+/**
+ * Validates if the post is strictly relevant to the target tech stack (Golang)
+ */
+function isRelevantPost(text) {
+    const t = normalizeText(text);
+    // Regex for strict Golang relevance
+    const strictRegex = /\b(golang|go\s?lang|go\s?dev|go\s?engineer|backend\s?go)\b/i;
+
+    return strictRegex.test(t);
+}
+
+/**
+ * Helper: Calculate internal match score
+ */
+function calculateInternalScore(text, isFresher, salary, location) {
+    let score = 0;
+    const textNorm = normalizeText(text);
+
+    // Base score for passing validation
+    score += 5;
+
+    // Tech stack specific boosts
+    if (textNorm.includes('golang')) score += 2;
+    if (textNorm.includes('backend') || textNorm.includes('back-end')) score += 1;
+    if (textNorm.includes('cloud') || textNorm.includes('aws') || textNorm.includes('docker')) score += 1;
+
+    // Fresher/Level specific
+    if (isFresher) score += 1;
+
+    // Content data quality
+    if (salary !== 'Negotiable') score += 1;
+    if (location !== 'Unknown') score += 1;
+
+    return Math.min(score, 10);
+}
+
+/**
+ * Extract posts from Threads JSON data (Recursive & Flexible)
  */
 function extractPostsFromJSON(data) {
     const posts = [];
+    const MAX_DEPTH = 15;
 
-    try {
-        // Threads data structure is deeply nested
-        // Common paths: data.thread_items, data.edges, etc.
+    // Helper to recursively find post objects
+    function findPosts(obj, depth = 0) {
+        if (depth > MAX_DEPTH || !obj || typeof obj !== 'object') return;
 
-        // Try multiple possible paths
-        let threadItems = null;
-
-        if (data.require) {
-            // Format 1: data.require[...][...].thread_items
-            for (const req of data.require || []) {
-                if (Array.isArray(req)) {
-                    for (const item of req) {
-                        if (item && typeof item === 'object') {
-                            // Deep search for thread_items
-                            const found = findThreadItems(item);
-                            if (found) {
-                                threadItems = found;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (threadItems) break;
-            }
+        // Check if this object looks like a post
+        if (obj.pk && obj.caption !== undefined && obj.user) {
+            processPost(obj);
+            return;
         }
 
-        // Format 2: Direct thread_items
-        if (!threadItems && data.thread_items) {
-            threadItems = data.thread_items;
+        // Also check for "post" key which wraps the actual post
+        if (obj.post && obj.post.pk && obj.post.user) {
+            processPost(obj.post);
         }
 
-        if (!threadItems || !Array.isArray(threadItems)) {
-            return posts;
+        // Arrays
+        if (Array.isArray(obj)) {
+            obj.forEach(item => findPosts(item, depth + 1));
+            return;
         }
 
-        // Extract post data
-        for (const item of threadItems) {
-            try {
-                const thread = item.thread_item || item;
-                const post = thread.post || thread;
-
-                if (!post) continue;
-
-                const caption = post.caption?.text || '';
-                const user = post.user?.username || 'unknown';
-                const postId = post.id || post.pk || '';
-                const takenAt = post.taken_at || 0;
-
-                if (caption && postId) {
-                    posts.push({
-                        id: postId,
-                        text: caption,
-                        username: user,
-                        timestamp: takenAt,
-                        url: `https://www.threads.net/@${user}/post/${postId}`
-                    });
-                }
-            } catch (e) {
-                // Skip malformed items
-                continue;
-            }
+        // Object keys
+        for (const key in obj) {
+            if (['__typename', 'viewer', 'extensions'].includes(key)) continue;
+            findPosts(obj[key], depth + 1);
         }
-    } catch (e) {
-        console.error('  ⚠️ Error extracting posts from JSON:', e.message);
     }
 
+    function processPost(post) {
+        try {
+            const postId = post.id || post.pk;
+            if (!postId) return;
+
+            const caption = post.caption?.text || post.text || '';
+            const user = post.user?.username;
+            const takenAt = post.taken_at || post.timestamp || 0;
+
+            if (user && (caption || post.image_versions2)) {
+                posts.push({
+                    id: postId,
+                    text: caption,
+                    username: user,
+                    timestamp: takenAt, // Keep raw timestamp
+                    url: `https://www.threads.net/@${user}/post/${post.code || postId}`,
+                    is_paid_partnership: post.is_paid_partnership,
+                    source_type: 'JSON'
+                });
+            }
+        } catch (e) {
+            // Ignore malformed
+        }
+    }
+
+    findPosts(data);
     return posts;
 }
 
 /**
- * Recursively search for thread_items in nested object
+ * Scrape a single keyword on a specific page
  */
-function findThreadItems(obj, depth = 0) {
-    if (depth > 10) return null; // Prevent infinite recursion
-
-    if (obj && typeof obj === 'object') {
-        if (obj.thread_items && Array.isArray(obj.thread_items)) {
-            return obj.thread_items;
-        }
-
-        for (const key in obj) {
-            const result = findThreadItems(obj[key], depth + 1);
-            if (result) return result;
-        }
-    }
-
-    return null;
-}
-
-/**
- * Scrape Threads using authenticated search
- * @param {import('playwright').Page} page 
- * @param {import('../lib/telegram')} reporter 
- */
-async function scrapeThreads(page, reporter) {
-    console.log('🧵 Searching Threads (Authenticated)...');
-
+async function scrapeKeyword(page, keyword, reporter) {
     const jobs = [];
-    const seenPostIds = new Set(); // Deduplication
+    const seenPostIds = new Set();
+    const TARGET_POSTS_PER_KEYWORD = 100;
 
-    const keywords = ['golang', 'fresher golang', 'junior golang'];
+    // Timespan: 2 months (60 days)
+    // Dynamic Filter
+    const TWO_MONTHS_MS = 60 * 24 * 60 * 60 * 1000;
+    const CUTOFF_DATE = Date.now() - TWO_MONTHS_MS;
+    console.log(`    📅 Date Filter: Posts after ${new Date(CUTOFF_DATE).toLocaleDateString()} only.`);
 
-    for (const keyword of keywords) {
+    // Listen for GraphQL responses
+    const capturedResponses = [];
+    const responseListener = async (response) => {
         try {
-            const searchUrl = `https://www.threads.net/search?q=${encodeURIComponent(keyword)}&serp_type=default`;
-
-            console.log(`  🔍 Searching: "${keyword}"`);
-
-            // Navigate to search
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await randomDelay(2000, 4000);
-
-            // Check for login wall
-            const currentUrl = page.url();
-            if (currentUrl.includes('/login') || currentUrl.includes('/accounts/login')) {
-                console.log('  🔒 Login wall detected. Cookies might be invalid.');
-                await reporter.sendError('Threads Scraper: Login required (cookies invalid)');
-                return [];
-            }
-
-            // Wait for posts to load
-            try {
-                await page.waitForSelector('[data-pressable-container="true"]', { timeout: 10000 });
-            } catch (e) {
-                console.log('  ⚠️ Posts container not found, trying to extract anyway...');
-            }
-
-            await mouseJiggle(page);
-            await randomDelay(2000, 3000);
-
-            // Scroll to load more posts
-            await humanScroll(page, 3);
-            await randomDelay(2000, 3000);
-
-            // Extract JSON data from script tags
-            console.log('  📦 Extracting JSON data from script tags...');
-
-            const scripts = await page.$$eval('script[type="application/json"][data-sjs]', elements =>
-                elements.map(el => el.textContent)
-            );
-
-            console.log(`  📄 Found ${scripts.length} script tags`);
-
-            let allPosts = [];
-
-            for (const content of scripts) {
-                if (content && (content.includes('thread_items') || content.includes('thread_item'))) {
-                    try {
-                        const data = JSON.parse(content);
-                        const posts = extractPostsFromJSON(data);
-                        allPosts = allPosts.concat(posts);
-                    } catch (e) {
-                        // Skip invalid JSON
-                        continue;
-                    }
+            const url = response.url();
+            if (url.includes('/api/graphql') || url.includes('searchResults') || url.includes('search_serp')) {
+                const contentType = response.headers()['content-type'];
+                if (contentType && contentType.includes('application/json')) {
+                    const json = await response.json();
+                    capturedResponses.push(json);
                 }
             }
+        } catch (e) { }
+    };
 
-            console.log(`  📊 Extracted ${allPosts.length} posts from JSON`);
+    page.on('response', responseListener);
 
-            // Filter posts with strict logic
-            for (const post of allPosts) {
-                // Deduplication
+    try {
+        const searchUrl = `https://www.threads.net/search?q=${encodeURIComponent(keyword)}&serp_type=default&filter=recent`;
+        console.log(`\n  🔍 Searching: "${keyword}" (Target: ~${TARGET_POSTS_PER_KEYWORD} posts)`);
+
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await randomDelay(2000, 3000);
+
+        if (page.url().includes('/login')) {
+            console.log('  🔒 Login wall detected.');
+            return [];
+        }
+
+        // --- Scroll Loop ---
+        let previousHeight = 0;
+        let noChangeCount = 0;
+        let loadedPostsForKeyword = 0;
+
+        for (let i = 0; i < 20; i++) {
+
+            // 1. Extract from DOM (Script tags + Captured Network Responses)
+            const currentData = [...capturedResponses];
+            const scripts = await page.$$eval('script[type="application/json"]', els => els.map(e => ({ type: e.type, id: e.id, content: e.textContent })));
+
+            const allDataSources = [
+                ...scripts.map(s => {
+                    try { return JSON.parse(s.content); } catch (e) { return null; }
+                }),
+                ...currentData
+            ].filter(Boolean);
+
+            let keywordPosts = [];
+            for (const data of allDataSources) {
+                const posts = extractPostsFromJSON(data);
+                keywordPosts = keywordPosts.concat(posts);
+            }
+
+            // 2. Fallback: Extract directly from DOM if JSON failed
+            const domPosts = await page.$$eval('div[role="article"]', (elements) => {
+                const results = [];
+                function findContainer(el) {
+                    let current = el;
+                    for (let i = 0; i < 6; i++) {
+                        if (!current) break;
+                        current = current.parentElement;
+                        if (current && (current.getAttribute('data-pressable-container') === 'true')) return current;
+                    }
+                    return null;
+                }
+
+                elements.forEach(el => {
+                    const text = el.innerText;
+                    if (!text || text.length < 10) return;
+
+                    const container = findContainer(el) || el;
+                    const linkEl = container.querySelector('a[href*="/post/"]');
+                    const url = linkEl ? linkEl.href : '';
+
+                    let username = 'unknown';
+                    const userEl = container.querySelector('a[href^="/@"]:not([href*="/post/"])');
+                    if (userEl) username = userEl.innerText.replace('@', '').trim();
+
+                    if (!url && !username) return;
+                    const id = url ? url.split('/post/')[1] : text.substring(0, 30).replace(/\s/g, '');
+
+                    // Try to find datetime in DOM <time datetime="...">
+                    let timeVal = 0;
+                    const timeEl = container.querySelector('time');
+                    if (timeEl && timeEl.getAttribute('datetime')) {
+                        // ISO string
+                        timeVal = new Date(timeEl.getAttribute('datetime')).getTime() / 1000;
+                    }
+
+                    results.push({
+                        id: id,
+                        text: text,
+                        username: username,
+                        url: url,
+                        timestamp: timeVal,
+                        isDOM: true,
+                        source_type: 'DOM'
+                    });
+                });
+                return results;
+            });
+
+            keywordPosts = keywordPosts.concat(domPosts);
+
+            // Process found posts
+            let newPostsCount = 0;
+            for (const post of keywordPosts) {
                 if (seenPostIds.has(post.id)) continue;
                 seenPostIds.add(post.id);
 
-                const text = post.text;
-                const textLower = text.toLowerCase();
+                // Normalization
+                const textRaw = post.text || '';
+                const textNorm = normalizeText(textRaw);
 
-                // 1. Strict Keyword Filter: Must contain "golang"
-                if (!CONFIG.keywordRegex.test(text) && !textLower.includes('golang')) continue;
-
-                // 2. Skip old posts (older than 2 years)
-                const currentYear = new Date().getFullYear();
-                const oldYearPattern = new RegExp(`\\b(${currentYear - 2}|${currentYear - 3}|${currentYear - 4})\\b`);
-                if (oldYearPattern.test(text)) {
-                    console.log(`    ⏭️ Skipping old post (found year older than ${currentYear - 1})`);
+                // 1. Strict Keyword Check (Golang)
+                if (!isRelevantPost(textNorm)) {
                     continue;
                 }
 
-                // 3. Detect if it's a fresher/junior post
-                const isFresherPost = CONFIG.includeRegex.test(text);
-                if (isFresherPost) {
-                    console.log(`    🎯 FRESHER/JUNIOR post detected!`);
+                // 2. Dynamic Date Check (Last 2 Months)
+                // If timestamp is known (non-zero), validate it.
+                if (post.timestamp > 0) {
+                    const postTimeMs = post.timestamp * 1000;
+                    if (postTimeMs < CUTOFF_DATE) {
+                        // Log skipped old post for debug
+                        // console.log(`      [Skip-Date] Old connection: ${new Date(postTimeMs).toLocaleDateString()}`);
+                        continue;
+                    }
+                } else {
+                    // If unknown, KEEP it if content matches text search (which it does via isRelevantPost)
                 }
 
-                // 4. Detect location (but don't filter)
-                let location = 'Unknown';
-                if (textLower.includes('remote') || textLower.includes('từ xa') || textLower.includes('online')) {
-                    location = 'Remote';
-                } else if (textLower.includes('cần thơ') || textLower.includes('can tho')) {
-                    location = 'Cần Thơ';
-                } else if (textLower.includes('hà nội') || textLower.includes('hồ chí minh') || textLower.includes('hcm') || textLower.includes('ho chi minh')) {
-                    location = 'Hanoi/HCM';
-                }
+                newPostsCount++;
+                loadedPostsForKeyword++;
 
-                const job = {
-                    title: text.split('\n')[0].slice(0, 100), // First line as title
+                const location = extractLocation(textRaw);
+                const salary = extractSalary(textRaw);
+                const isFresher = textNorm.match(/(fresher|junior|intern|thuc tap|moi ra truong)/i) !== null;
+                const formattedDate = formatExactDate(post.timestamp);
+                const matchScore = calculateInternalScore(textRaw, isFresher, salary, location);
+
+                jobs.push({
+                    title: textRaw.split('\n')[0].slice(0, 100) || 'Golang Opportunity',
                     company: `@${post.username}`,
-                    url: post.url,
-                    preview: text.slice(0, 100).trim(),
-                    salary: 'Negotiable',
+                    url: post.url || `https://threads.net/search?q=${encodeURIComponent(textRaw.slice(0, 20))}`,
+                    preview: textRaw.slice(0, 200).trim(),
+                    salary: salary,
                     location: location,
                     source: 'Threads',
                     techStack: 'Golang',
-                    description: text.slice(0, 300),
-                    postedDate: post.timestamp ? new Date(post.timestamp * 1000).toLocaleDateString() : 'Recent',
-                    matchScore: calculateMatchScore({ title: text, location: location.toLowerCase() }),
-                    isFresher: isFresherPost
-                };
-
-                jobs.push(job);
-                console.log(`    ✅ Post: ${job.title.slice(0, 40)}... (@${post.username})`);
-
-                // Limit to 5 posts per keyword
-                if (jobs.length >= 5) break;
+                    postedDate: formattedDate,
+                    matchScore: matchScore,
+                    isFresher: isFresher
+                });
             }
 
-            await randomDelay(3000, 5000); // Delay between keywords
+            if (newPostsCount > 0) {
+                console.log(`    ⬇️  Scrolled & verified ${newPostsCount} relevant posts (Total: ${loadedPostsForKeyword})`);
+                noChangeCount = 0;
+            } else {
+                noChangeCount++;
+            }
 
-        } catch (error) {
-            console.error(`  ❌ Error searching "${keyword}": ${error.message}`);
+            if (loadedPostsForKeyword >= TARGET_POSTS_PER_KEYWORD) {
+                console.log(`    ✅ Reached target of ${TARGET_POSTS_PER_KEYWORD} posts.`);
+                break;
+            }
+
+            if (noChangeCount >= 5) {
+                console.log('    🛑 No new relevant posts found after multiple scrolls, stopping.');
+                break;
+            }
+
+            await humanScroll(page);
+            await randomDelay(4000, 6000);
+
+            const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+            if (currentHeight === previousHeight) {
+                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                await randomDelay(2000, 3000);
+            }
+            previousHeight = currentHeight;
         }
+
+    } catch (error) {
+        console.error(`  ❌ Error searching "${keyword}": ${error.message}`);
+    } finally {
+        page.removeListener('response', responseListener);
     }
 
-    // Deduplicate by URL
-    const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-    console.log(`  ✅ Found ${uniqueJobs.length} unique jobs`);
+    return jobs;
+}
 
+/**
+ * Scrape Threads in PARALLEL mode (Multi-tab)
+ */
+async function scrapeThreadsParallel(context, reporter) {
+    console.log('🧵 Starting Parallel Threads Scraping...');
+    const keywords = ['golang', 'fresher golang', 'junior golang', 'golang developer'];
+
+    const results = await Promise.all(keywords.map(async (keyword) => {
+        let page = null;
+        try {
+            page = await context.newPage();
+            return await scrapeKeyword(page, keyword, reporter);
+        } catch (error) {
+            console.error(`❌ Error in parallel worker for "${keyword}":`, error);
+            return [];
+        } finally {
+            if (page) await page.close();
+        }
+    }));
+
+    const allJobs = results.flat();
+    const uniqueJobs = [...new Map(allJobs.map(j => [j.url, j])).values()];
+
+    console.log(`\n✅ [Parallel] Finished. Found ${uniqueJobs.length} unique jobs total.`);
     return uniqueJobs;
 }
 
-module.exports = { scrapeThreads };
+async function scrapeThreads(page, reporter, customKeywords = null) {
+    console.log('🧵 Searching Threads (Serial)...');
+    const defaultKeywords = ['golang', 'fresher golang', 'junior golang', 'golang developer'];
+    const keywords = customKeywords || defaultKeywords;
+
+    const allJobs = [];
+    for (const keyword of keywords) {
+        try {
+            const jobs = await scrapeKeyword(page, keyword, reporter);
+            allJobs.push(...jobs);
+        } catch (error) {
+            console.error(`  ❌ Error processing "${keyword}": ${error.message}`);
+        }
+    }
+
+    const uniqueJobs = [...new Map(allJobs.map(j => [j.url, j])).values()];
+    return uniqueJobs;
+}
+
+module.exports = { scrapeThreads, scrapeThreadsParallel };

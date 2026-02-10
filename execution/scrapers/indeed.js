@@ -7,6 +7,11 @@ const CONFIG = require('../config');
 const { randomDelay, humanScroll } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
 
+/**
+ * Helper: Normalize text to handle fancy fonts and accents
+ */
+const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 async function scrapeIndeed(page, reporter) {
     console.log('💼 Searching Indeed.com...');
 
@@ -75,26 +80,27 @@ async function scrapeIndeed(page, reporter) {
                         }
 
                         const locationEl = card.locator('[data-testid="text-location"], .companyLocation');
-                        const location = await locationEl.textContent().catch(() => 'Vietnam');
+                        const locationRaw = await locationEl.textContent().catch(() => 'Vietnam');
+                        const locationNorm = normalizeText(locationRaw);
 
                         // --- FAST FILTER ---
-                        const locLower = location.toLowerCase();
+                        const locLower = locationNorm; // already lowercase
 
                         // Valid Targets
-                        const isRemote = locLower.includes('remote') || locLower.includes('từ xa') ||
-                            locLower.includes('cần thơ') || locLower.includes('can tho');
+                        const isRemote = locLower.includes('remote') || locLower.includes('tu xa') ||
+                            locLower.includes('can tho');
 
                         // Invalid Targets (Hard Block)
-                        const isHanoiHCM = locLower.includes('hà nội') || locLower.includes('hồ chí minh') || locLower.includes('hcm') || locLower.includes('ho chi minh');
+                        const isHanoiHCM = locLower.includes('ha noi') || locLower.includes('ho chi minh') || locLower.includes('hcm') || locLower.includes('saigon');
 
                         if (!isRemote && isHanoiHCM) {
                             // Reject immediately
-                            // console.log(`    ❌ Skipped (Fast Loc): ${location}`);
+                            // console.log(`    ❌ Skipped (Fast Loc): ${locationRaw}`);
                             continue;
                         }
 
                         // Check Exclude Title
-                        if (CONFIG.excludeRegex.test(title.toLowerCase())) {
+                        if (CONFIG.excludeRegex.test(normalizeText(title))) {
                             console.log(`    ❌ Skipped (Fast Title): ${title}`);
                             continue;
                         }
@@ -122,16 +128,17 @@ async function scrapeIndeed(page, reporter) {
                             continue;
                         }
 
-                        const jobText = `${title} ${company} ${location} ${description}`.toLowerCase();
+                        // Normalize full text including description
+                        const jobTextNorm = normalizeText(`${title} ${company} ${locationRaw} ${description}`);
 
                         // Re-check Keyword in Description
-                        if (!CONFIG.keywordRegex.test(jobText)) {
+                        if (!CONFIG.keywordRegex.test(jobTextNorm)) {
                             console.log(`      ❌ Skipped (No Keyword in Desc)`);
                             continue;
                         }
 
                         // Re-check Location in Description
-                        const descRemote = description.includes('remote') || description.includes('làm việc từ xa') || description.includes('cần thơ');
+                        const descRemote = jobTextNorm.includes('remote') || jobTextNorm.includes('lam viec tu xa') || jobTextNorm.includes('can tho');
                         if (!isRemote && isHanoiHCM && !descRemote) {
                             console.log(`      ❌ Skipped (Verify Loc Failed)`);
                             continue;
@@ -143,7 +150,7 @@ async function scrapeIndeed(page, reporter) {
                             company: company.trim(),
                             url: url,
                             salary: 'Negotiable',
-                            location: location.trim(),
+                            location: locationRaw.trim(),
                             source: 'Indeed',
                             techStack: 'Golang',
                             description: description.slice(0, 200) + '...'

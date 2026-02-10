@@ -7,6 +7,11 @@ const CONFIG = require('../config');
 const { randomDelay, humanScroll } = require('../lib/stealth');
 
 /**
+ * Helper: Normalize text to handle fancy fonts and accents
+ */
+const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/**
  * Scrape jobs from X (Twitter)
  * Returns RAW jobs - AI validation done centrally in main.js
  */
@@ -65,8 +70,10 @@ async function scrapeTwitter(page, reporter) {
                 };
 
                 // Basic filter - only include if has job-related keywords
-                const textLower = text.toLowerCase();
-                if (/\b(hiring|job|opening|developer|engineer|position|remote|golang|go backend)\b/i.test(textLower)) {
+                // NORMALIZE CHECK
+                const textNorm = normalizeText(text);
+
+                if (/\b(hiring|job|opening|developer|engineer|position|remote|golang|go backend)\b/i.test(textNorm)) {
                     jobs.push(job);
                     console.log(`    📝 ${job.title.slice(0, 40)}...`);
                 }

@@ -7,11 +7,11 @@ require('dotenv').config();
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
-const { scrapeThreads } = require('../execution/scrapers/threads');
+const { scrapeThreads, scrapeThreadsParallel } = require('../execution/scrapers/threads');
 const TelegramReporter = require('../execution/lib/telegram');
 
 async function testThreads() {
-    console.log('🧪 Testing Threads Scraper...\n');
+    console.log('🧪 Testing Threads Scraper (Parallel Mode)...\n');
 
     const browser = await chromium.launch({
         headless: false, // Show browser for debugging
@@ -70,7 +70,37 @@ async function testThreads() {
 
     console.log(`   Current URL: ${currentUrl}`);
 
-    if (currentUrl.includes('/login') || pageContent.includes('Log in with Instagram')) {
+    // Check if we need to click "Continue with Instagram" button
+    if (pageContent.includes('Tiếp tục bằng Instagram') || pageContent.includes('Continue with Instagram')) {
+        console.log('   🔄 Found "Continue with Instagram" button, clicking...');
+
+        try {
+            // Try to find and click the Instagram login button
+            const instagramButton = page.locator('div[role="button"]').filter({ hasText: /Tiếp tục bằng Instagram|Continue with Instagram/i }).first();
+
+            if (await instagramButton.isVisible({ timeout: 5000 })) {
+                await instagramButton.click();
+                console.log('   ✅ Clicked Instagram login button');
+
+                // Wait for navigation
+                await page.waitForTimeout(5000);
+
+                const newUrl = page.url();
+                console.log(`   New URL: ${newUrl}`);
+
+                if (newUrl.includes('/login') || await page.content().then(c => c.includes('Log in with Instagram'))) {
+                    console.log('   ❌ Still not logged in after clicking button');
+                    console.log('   💡 Solution: Export cookies AFTER manually logging into Threads in browser\n');
+                } else {
+                    console.log('   ✅ LOGGED IN successfully after clicking button\n');
+                }
+            } else {
+                console.log('   ⚠️ Button not found or not visible\n');
+            }
+        } catch (e) {
+            console.log(`   ⚠️ Failed to click button: ${e.message}\n`);
+        }
+    } else if (currentUrl.includes('/login') || pageContent.includes('Log in with Instagram')) {
         console.log('   ❌ NOT LOGGED IN - Cookies are invalid or missing Instagram cookies');
         console.log('   💡 Solution: Export cookies while logged into Threads (include both .threads.net and .instagram.com domains)\n');
     } else {
@@ -80,7 +110,8 @@ async function testThreads() {
     const reporter = new TelegramReporter();
 
     try {
-        const jobs = await scrapeThreads(page, reporter);
+        // Run parallel scraping using multiple tabs
+        const jobs = await scrapeThreadsParallel(context, reporter);
 
         console.log('\n' + '='.repeat(60));
         console.log('📊 RESULTS');

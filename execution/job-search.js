@@ -3,7 +3,7 @@
  * Main orchestration file
  * 
  * Flow:
- * 1. Scrape all platforms (TopCV, Twitter, LinkedIn)
+ * 1. Scrape all platforms (TopCV, Twitter, LinkedIn, Facebook, Threads, Indeed)
  * 2. Collect ALL raw jobs
  * 3. ONE batch AI validation call for all jobs (G4F)
  * 4. Filter, deduplicate, and send to Telegram
@@ -28,6 +28,7 @@ const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
 const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
 const { scrapeFacebook } = require('./scrapers/facebook');
+const { scrapeThreads } = require('./scrapers/threads');
 const { scrapeIndeed } = require('./scrapers/indeed');
 const { scrapeVercel } = require('./scrapers/vercel');
 const { scrapeCloudflare } = require('./scrapers/cloudflare');
@@ -88,6 +89,7 @@ async function main() {
         twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json'),
         linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json'),
         facebook: path.join(CONFIG.paths.cookies, 'cookies-facebook.json'),
+        threads: path.join(CONFIG.paths.cookies, 'cookies-threads.json'),
         vercel: path.join(CONFIG.paths.cookies, 'cookies-vercel.json')
     };
 
@@ -143,40 +145,19 @@ async function main() {
         // Scrape LinkedIn
         // if (platform === 'all' || platform === 'linkedin') {
         //     console.log('\n🔒 Starting LinkedIn scraper...');
-
-        //     // Check if LinkedIn cookies exist for authenticated mode
-        //     const hasLinkedInCookies = fs.existsSync(cookieFiles.linkedin);
-
-        //     // Always create separate context for LinkedIn
-        //     const linkedInContext = await createLinkedInContext(browser);
-        //     const linkedInPage = await linkedInContext.newPage();
-
-        //     try {
-        //         // Load cookies if available
-        //         if (hasLinkedInCookies) {
-        //             console.log('  🍪 Using LinkedIn cookies (authenticated mode)');
-        //             const cookies = JSON.parse(fs.readFileSync(cookieFiles.linkedin, 'utf-8'));
-        //             await linkedInContext.addCookies(cookies);
-        //         } else {
-        //             console.log('  🔓 No LinkedIn cookies - using Guest Mode');
-        //         }
-
-        //         await applyStealthSettings(linkedInPage);
-
-        //         const linkedInJobs = await scrapeLinkedIn(linkedInPage, reporter);
-        //         allRawJobs = allRawJobs.concat(linkedInJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-        //     } catch (error) {
-        //         console.error('  ❌ LinkedIn scraper error:', error.message);
-        //     } finally {
-        //         await linkedInContext.close();
-        //         console.log('  🧹 LinkedIn context closed');
-        //     }
+        //     // ... (LinkedIn logic remains commented out per original) 
         // }
 
         // Scrape Facebook
         if (platform === 'all' || platform === 'facebook') {
             const fbJobs = await scrapeFacebook(page, reporter);
             allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
+        }
+
+        // Scrape Threads
+        if (platform === 'all' || platform === 'threads') {
+            const threadsJobs = await scrapeThreads(page, reporter);
+            allRawJobs = allRawJobs.concat(threadsJobs.map((j, i) => ({ ...j, id: `threads-${i}` })));
         }
 
         // Scrape Indeed

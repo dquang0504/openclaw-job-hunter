@@ -37,6 +37,7 @@ jobs:
           echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
           echo '${{ secrets.COOKIES_LINKEDIN }}' > .cookies/cookies-linkedin.json
           echo '${{ secrets.COOKIES_FACEBOOK }}' > .cookies/cookies-facebook.json
+          echo '${{ secrets.COOKIES_THREADS }}' > .cookies/cookies-threads.json
           echo '${{ secrets.COOKIES_VERCEL }}' > .cookies/cookies-vercel.json
       
       # Clean old caches (older than 4 weeks)
