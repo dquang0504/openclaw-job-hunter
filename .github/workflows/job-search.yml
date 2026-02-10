@@ -39,7 +39,30 @@ jobs:
           echo '${{ secrets.COOKIES_FACEBOOK }}' > .cookies/cookies-facebook.json
           echo '${{ secrets.COOKIES_VERCEL }}' > .cookies/cookies-vercel.json
       
-      # Restore caches (seen-jobs + rophim-cache)
+      # Clean old caches (older than 4 weeks)
+      - name: Clean old caches
+        continue-on-error: true
+        run: |
+          echo "🧹 Cleaning caches older than 4 weeks..."
+          
+          # Get timestamp 4 weeks ago
+          CUTOFF_DATE=$(date -d '4 weeks ago' --iso-8601=seconds)
+          echo "Cutoff date: $CUTOFF_DATE"
+          
+          # List all caches and delete old ones
+          gh cache list --limit 100 --json key,createdAt | \
+            jq -r --arg cutoff "$CUTOFF_DATE" \
+              '.[] | select(.createdAt < $cutoff) | .key' | \
+            while read cache_key; do
+              echo "Deleting old cache: $cache_key"
+              gh cache delete "$cache_key" || true
+            done
+          
+          echo "✅ Cache cleanup completed"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      
+      # Restore caches (seen-jobs + rophim-cache + vercel-cache)
       - name: Restore caches
         uses: actions/cache@v4
         with:
