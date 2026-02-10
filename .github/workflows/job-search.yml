@@ -50,7 +50,8 @@ jobs:
           echo "Cutoff date: $CUTOFF_DATE"
           
           # List all caches and delete old ones
-          gh cache list --limit 100 --json key,createdAt | \
+          # Limit 500: 6 runs/day × 60 days = 360 caches (with buffer)
+          gh cache list --limit 500 --json key,createdAt | \
             jq -r --arg cutoff "$CUTOFF_DATE" \
               '.[] | select(.createdAt < $cutoff) | .key' | \
             while read cache_key; do
