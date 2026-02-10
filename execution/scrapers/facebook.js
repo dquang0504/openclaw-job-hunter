@@ -128,23 +128,14 @@ async function scrapeFacebook(page, reporter) {
                     // 1. Strict Keyword Filter (Golang Only)
                     if (!CONFIG.keywordRegex.test(text) && !textLower.includes('golang')) continue;
 
-                    // 2. Strict Exclude (Experience > 2y)
-                    if (CONFIG.excludeRegex.test(text)) continue;
+                    // 2. REMOVED: Experience filter (Facebook posts often lack structured info)
+                    // 3. REMOVED: Location filter (Facebook recruiters often don't specify location clearly)
 
                     // 2.5. BOOST: Prioritize fresher/intern/junior posts (includeRegex)
                     const isFresherPost = CONFIG.includeRegex.test(text);
                     if (isFresherPost) {
                         console.log(`    🎯 FRESHER/JUNIOR post detected!`);
                     }
-
-                    // 3. Location Filter
-                    const isTarget = textLower.includes('remote') || textLower.includes('từ xa') ||
-                        textLower.includes('cần thơ') || textLower.includes('can tho') ||
-                        textLower.includes('online');
-                    const isHanoiHCM = textLower.includes('hà nội') || textLower.includes('hồ chí minh') ||
-                        textLower.includes('hcm') || textLower.includes('ho chi minh');
-
-                    if (!isTarget && isHanoiHCM) continue;
 
                     // 4. Dynamic Date Heuristic (exclude old posts from previous years)
                     const currentYear = new Date().getFullYear();
@@ -159,21 +150,32 @@ async function scrapeFacebook(page, reporter) {
                     // Users can search for the post using the preview text
                     const urlStr = cleanGroupUrl;
 
+                    // Determine location for job object (without filtering)
+                    let location = 'Unknown';
+                    if (textLower.includes('remote') || textLower.includes('từ xa') || textLower.includes('online')) {
+                        location = 'Remote';
+                    } else if (textLower.includes('cần thơ') || textLower.includes('can tho')) {
+                        location = 'Cần Thơ';
+                    } else if (textLower.includes('hà nội') || textLower.includes('hồ chí minh') || textLower.includes('hcm') || textLower.includes('ho chi minh')) {
+                        location = 'Hanoi/HCM';
+                    }
+
 
                     const job = {
                         title: text.split('\n')[0].slice(0, 100), // First line as title
                         company: 'Facebook Group',
                         url: urlStr,
-                        preview: text.slice(0, 100).trim(), // NEW: Preview text for manual search
+                        preview: text.slice(0, 100).trim(), // Preview text for manual search
                         salary: 'Negotiable',
-                        location: isTarget ? (textLower.includes('cần thơ') ? 'Cần Thơ' : 'Remote') : 'Unknown',
+                        location: location, // Use detected location
                         source: 'Facebook',
                         techStack: 'Golang',
                         description: text.slice(0, 300), // Extract preview text for Telegram
                         postedDate: 'Recent',
-                        matchScore: calculateMatchScore({ title: text, location: isTarget ? 'remote' : 'unknown' }),
+                        matchScore: calculateMatchScore({ title: text, location: location.toLowerCase() }),
                         isFresher: isFresherPost // Flag for fresher/junior posts
                     };
+
 
                     jobs.push(job);
                     validPostsCount++; // Increment valid posts counter
