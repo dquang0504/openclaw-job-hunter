@@ -1,0 +1,32 @@
+# Telegram configuration
+telegram_token: ""
+telegram_chat_id: 0
+
+# Search criteria
+keywords:
+  - golang
+  - go developer
+  - backend
+
+locations:
+  - remote
+  - cần thơ
+  - can tho
+  - ho chi minh
+  - hcm
+  - sai gon
+  - ho chi minh city
+  - online
+
+#Facebook groups to scrape
+facebook_groups:
+  - https://www.facebook.com/groups/golang.org.vn
+  - https://www.facebook.com/groups/1875985159376456
+  - https://www.facebook.com/groups/nodejs.php.python
+  - https://www.facebook.com/groups/itjobsphp
+  - https://www.facebook.com/groups/ithotjobs.tuyendungit.vieclamcntt.susudev
+  - https://www.facebook.com/groups/465885632447300
+
+#Paths
+cookies_path: "../.cookies"
+cache_path: "../.cache"
