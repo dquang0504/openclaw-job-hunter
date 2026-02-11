@@ -23,7 +23,7 @@ async function scrapeFacebook(page, reporter) {
     await applyStealthSettings(page);
 
     const jobs = [];
-    const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9In0%3D';
+    const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
     for (const groupUrl of CONFIG.facebookGroups) {
         try {
@@ -45,17 +45,13 @@ async function scrapeFacebook(page, reporter) {
             }
 
             // Check for Blocked/Login - Strict Check
-            // Don't use page.content() includes as it triggers on hidden scripts/comments
             const currentUrl = page.url();
             if (currentUrl.includes('/checkpoint/') || currentUrl.includes('/blocked/')) {
                 console.log('  ⛔ Redirected to Checkpoint URL. Stopping.');
-                await reporter.sendError('Facebook Scraper: Account flagged/blocked (URL Check).');
+                await reporter.sendError('Facebook Scraper: Account flagged/blocked (code 403).');
                 return [];
             }
-
-            // check for visible block message
-            const blockedHeader = page.getByRole('heading', { name: /Temporarily Blocked|Account Restricted/i });
-            if (await blockedHeader.isVisible()) {
+            if (await page.getByRole('heading', { name: /Temporarily Blocked|Account Restricted/i }).isVisible()) {
                 console.log('  ⛔ "Temporarily Blocked" message visible. Stopping.');
                 await reporter.sendError('Facebook Scraper: Account flagged/blocked (UI Check).');
                 return [];
@@ -79,13 +75,11 @@ async function scrapeFacebook(page, reporter) {
             await mouseJiggle(page);
             await randomDelay(3000, 5000);
 
-            // Check for login wall again (just in case)
+            // Check for login/no-results
             if (await page.locator('input[name="email"]').count() > 0) {
                 console.log('  🔒 Login wall detected. Cookies might be invalid.');
                 continue;
             }
-
-            // Check for "No results"
             if (await page.getByText('No results found', { exact: false }).isVisible()) {
                 console.log('  ℹ️ No results found for query.');
                 continue;
@@ -100,10 +94,7 @@ async function scrapeFacebook(page, reporter) {
             // Facebook search results structure varies greatly.
             // div[role="feed"] > div is usually good for Feed items
             // div[role="article"] is specific for Posts
-            // Also try generic containers if specific ones fail
             let postSelector = 'div[role="feed"] > div, div[role="article"]';
-
-            // Wait specifically for feed or article
             try {
                 await page.waitForSelector('div[role="feed"], div[role="article"]', { timeout: 10000 });
             } catch (e) {
@@ -113,9 +104,7 @@ async function scrapeFacebook(page, reporter) {
             const posts = await page.locator(postSelector).all();
             console.log(`  📄 Found ${posts.length} visible posts`);
 
-            // We'll try to collect up to 3 valid posts, checking up to 15 sections (increased from 10)
             const maxValidPosts = 3;
-            // Scan more items because "feed > div" might include headers/spacers
             const maxAttempts = Math.min(15, posts.length);
             let validPostsCount = 0;
 
@@ -123,53 +112,28 @@ async function scrapeFacebook(page, reporter) {
                 const post = posts[i];
                 try {
                     // Extract Text and HTML for profile detection
-
-                    // IMPROVED TEXT EXTRACTION:
-                    // Priority 1: Use 'userContent' or specific message div if possible (often has dir="auto")
-                    // Priority 2: Full text of container
                     let textRaw = '';
                     const messageEl = post.locator('div[data-ad-preview="message"], div[dir="auto"]').first();
-
                     if (await messageEl.count() > 0) {
                         textRaw = await messageEl.innerText().catch(() => '');
                     }
-
-                    // Fallback to full text if message part is empty or huge (like entire sidebar included)
                     if (!textRaw || textRaw.length < 5) {
                         textRaw = await post.innerText().catch(() => '');
                     }
 
                     const outerHtml = await post.evaluate(el => el.outerHTML).catch(() => '');
-
-                    // 🚫 PROFILE DETECTION: Skip if this is a member profile, not a post
-                    // "Add friend", "Follow", "View profile" usually indicate user card, NOT post
-                    // But be careful: a post MIGHT show author profile link.
-                    // Check for "Add Friend" button specifically
                     if (outerHtml.includes('aria-label="Add friend"') || outerHtml.includes('aria-label="Add Friend"')) {
-                        // console.log(`    ⏭️ Skipping member profile`);
                         continue;
                     }
-
-                    // No minimum text length requirement - even short quality posts are valuable!
                     if (!textRaw || textRaw.trim().length === 0) continue;
 
                     const textNorm = normalizeText(textRaw);
-
-                    // 1. Strict Keyword Filter (Golang Only)
-                    // If normalize fails to find golang, skip.
                     if (!CONFIG.keywordRegex.test(textNorm) && !textNorm.includes('golang')) continue;
 
-                    // 2.5. BOOST: Prioritize fresher/intern/junior posts (includeRegex)
                     const isFresherPost = CONFIG.includeRegex.test(textNorm);
-                    if (isFresherPost) {
-                        console.log(`    🎯 FRESHER/JUNIOR post detected!`);
-                    }
+                    if (isFresherPost) console.log(`    🎯 FRESHER/JUNIOR post detected!`);
 
-                    // 4. Dynamic Date Heuristic (Last 2 Months)
-                    // Skip if post seems to be from > 2 months ago
-                    // Heuristic: Check for text like "3 months ago", "1 year ago", "2023", "2022"
-                    // Also check for explicit old years in text (e.g. "posted in 2023")
-
+                    // Date Check (2 Months Logic)
                     const timeTextRegexSkip = /\b(\d+)\s+(months?|tháng|years?|năm)\s+(ago|trước)\b/i;
                     const matchTime = textRaw.match(timeTextRegexSkip);
                     if (matchTime) {
@@ -184,127 +148,158 @@ async function scrapeFacebook(page, reporter) {
                             continue;
                         }
                     }
-
                     const currentYear = new Date().getFullYear();
-                    // Skip if explicit older year mentioned (e.g. 2024 if currently 2026, 2023, etc.)
-                    // BUT be careful not to skip current year.
-                    // If we are in 2026, skip 2025 and older? No, only allow last 2 months. 
-                    // So if current is Feb 2026, allow Dec 2025.
-                    // Simple heuristic: block year - 2 and older.
                     const oldYearPattern = new RegExp(`\\b(${currentYear - 2}|${currentYear - 3})\\b`);
                     if (oldYearPattern.test(textNorm)) {
                         console.log(`    ⏭️ Skipping old post (found previous year)`);
                         continue;
                     }
 
-                    // Extract Post URL (Permalink) - Robust Method
-                    // Strategy: Iterate ALL links in the post container and score them based on Aria Label, Href Pattern, and Text.
+                    // Extract Post URL (Permalink) - Strategy E: Single Click Heuristic
+                    // The user wants HOVER + Single Click at -20px (Left 20px from SVG).
                     let postUrl = cleanGroupUrl;
-                    let bestMatchUrl = '';
-                    let bestMatchScore = 0; // Higher is better
-                    let foundDate = null; // Store detected date for filtering
+                    let clickedSuccess = false;
+                    let extractedTime = 'Recent'; // New: Capture timestamp text
 
                     try {
-                        const links = await post.locator('a[href]').all();
+                        const svgs = await post.locator('span > span > svg').all();
+                        let targetSvg = null;
 
-                        // Timestamp Regex Patterns for Text/Aria-Label
-                        const timeRegex = /^(vừa xong|just now|hôm qua|yesterday|\d+\s+(giờ|phút|ngày|tháng|năm|hr|hrs|min|mins|day|days|h|m|y)|[a-zA-Z]{3,9}\s+\d{1,2}(,|\sat)?)/i;
+                        for (const svg of svgs) {
+                            const box = await svg.boundingBox();
+                            if (!box) continue;
 
-                        for (const link of links) {
-                            let score = 0;
-                            const href = await link.getAttribute('href');
-                            const ariaLabel = await link.getAttribute('aria-label') || '';
-                            const text = await link.innerText().catch(() => '');
-
-                            if (!href || href === '#' || href.startsWith('javascript:')) continue;
-
-                            // 1. HREF Pattern (Strongest Signal for Identity)
-                            if (href.includes('/posts/') || href.includes('/permalink/')) {
-                                score += 10;
-                            } else if (href.match(/\/groups\/\d+\/user\/\d+/)) {
-                                score += 2;
-                            } else if (href.includes('/groups/') && href.length > 50) {
-                                score += 1;
+                            // Privacy/Globe icons are small (usually 12-16px).
+                            if (box.width <= 20 && box.height <= 20) {
+                                targetSvg = svg;
+                                break;
                             }
+                        }
 
-                            // 2. Aria Label (Strong Signal for Intent)
-                            // Facebook often puts the full date in aria-label of the timestamp link
-                            if (ariaLabel && (timeRegex.test(ariaLabel) || ariaLabel.length > 10 && ariaLabel.match(/\d{1,2}/))) {
-                                score += 5;
-                                // Try parse date
-                                const d = new Date(ariaLabel);
-                                if (!isNaN(d.getTime())) {
-                                    foundDate = d;
+                        if (targetSvg) {
+                            // Ensure element is visible
+                            try {
+                                await targetSvg.scrollIntoViewIfNeeded().catch(() => { });
+                                await page.waitForTimeout(500);
+                            } catch (e) { }
+
+                            // Re-fetch
+                            const box = await targetSvg.boundingBox();
+
+                            if (box) {
+                                const centerY = box.y + (box.height / 2);
+                                const startUrl = page.url();
+
+                                // Strategy: Single Click at -20px (Left) as requested
+                                const clickX = box.x - 20;
+
+                                // Extract timestamp text
+                                try {
+                                    // Try getting text from parent levels (svg -> span -> span -> a)
+                                    // We check ancestor elements for valid date-like text
+                                    // This is heuristics based
+                                    const parentText = await targetSvg.locator('xpath=./../../..').innerText({ timeout: 100 }).catch(() => '');
+                                    const lines = parentText.split('\n');
+                                    // Take first line that looks like a date (e.g. contains numbers or keywords)
+                                    const potentialDate = lines.find(l => l.match(/\d|min|hr|day|hôm|qua/i));
+                                    if (potentialDate && potentialDate.length < 30) {
+                                        extractedTime = potentialDate.trim();
+                                    }
+                                } catch (e) { }
+
+                                console.log(`      🖱️ Found SVG at (${Math.round(box.x)}, ${Math.round(box.y)}). Clicking Left 20px. Time: "${extractedTime}"`);
+
+                                try {
+                                    // HOVER first (400ms)
+                                    await page.mouse.move(clickX, centerY);
+                                    await page.waitForTimeout(400);
+
+                                    // LEFT CLICK
+                                    await page.mouse.click(clickX, centerY);
+                                    await page.waitForTimeout(1000);
+
+                                    const currentUrl = page.url();
+                                    if (currentUrl !== startUrl && (currentUrl.includes('/posts/') || currentUrl.includes('/permalink/'))) {
+                                        postUrl = currentUrl;
+                                        clickedSuccess = true;
+                                        console.log(`      🔗 SUCCESS! Link Clicked. URL: ${currentUrl}`);
+
+                                        // Must go back to continue scraping
+                                        await page.goBack();
+                                        await page.waitForLoadState('domcontentloaded');
+                                        await randomDelay(1000, 2000);
+                                    } else {
+                                        // console.log(`      ⚠️ Click didn't navigate to permalink. URL: ${currentUrl}`);
+                                        if (currentUrl !== startUrl) await page.goBack();
+                                    }
+                                } catch (e) {
+                                    console.log(`      ⚠️ Click Action Failed: ${e.message}`);
                                 }
                             }
-
-                            // 3. Text Content (Fallback Signal)
-                            if (text && text.trim().length > 0 && timeRegex.test(text.trim())) {
-                                score += 3;
-                            }
-
-                            if (score > bestMatchScore) {
-                                bestMatchScore = score;
-                                bestMatchUrl = href;
-                            }
-                        }
-
-                        // STRICT DATE FILTERING if we found a valid date in aria-label
-                        if (foundDate) {
-                            const cutoffDate = new Date();
-                            cutoffDate.setMonth(cutoffDate.getMonth() - 2); // 2 months ago
-
-                            if (foundDate < cutoffDate) {
-                                console.log(`    ⏭️ Skipping old post (Date in aria-label: ${foundDate.toLocaleDateString()})`);
-                                continue;
-                            }
-                        }
-
-                        if (bestMatchUrl && bestMatchScore >= 3) {
-                            const baseUrl = 'https://www.facebook.com';
-                            let fullUrl = bestMatchUrl.startsWith('http') ? bestMatchUrl : `${baseUrl}${bestMatchUrl}`;
-
-                            // Fix double slashes
-                            fullUrl = fullUrl.replace(/([^:]\/)\/+/g, "$1");
-
-                            // Clean URL
-                            if (!fullUrl.includes('permalink.php')) {
-                                fullUrl = fullUrl.split('?')[0];
-                            }
-                            postUrl = fullUrl;
+                        } else {
+                            // SVG not found
                         }
 
                     } catch (e) {
-                        // keep default group URL
+                        console.log(`      ⚠️ Click Strategy Error: ${e.message}`);
                     }
 
-                    // Determine location for job object (without filtering)
-                    let location = 'Unknown';
-                    if (textNorm.includes('remote') || textNorm.includes('tu xa') || textNorm.includes('online')) {
-                        location = 'Remote';
-                    } else if (textNorm.includes('can tho')) {
-                        location = 'Cần Thơ';
-                    } else if (textNorm.includes('ha noi') || textNorm.includes('ho chi minh') || textNorm.includes('hcm') || textNorm.includes('saigon')) {
-                        location = 'Hanoi/HCM';
+                    // FALLBACK: Scan Links (Strategy D) if click failed
+                    if (!clickedSuccess) {
+                        const links = await post.locator('a[href]').all();
+                        let foundPermalink = '';
+                        // Prioritize /posts/ and avoid /user/
+                        for (const link of links) {
+                            const href = await link.getAttribute('href');
+                            if (!href) continue;
+                            if (href.includes('/posts/') && !href.includes('/user/')) {
+                                foundPermalink = href;
+                                break;
+                            }
+                            if (href.includes('/permalink/') && !foundPermalink) foundPermalink = href;
+                        }
+
+                        // Fallback to group link
+                        if (foundPermalink) {
+                            const baseUrl = 'https://www.facebook.com';
+                            let fullUrl = foundPermalink.startsWith('http') ? foundPermalink : `${baseUrl}${foundPermalink}`;
+                            fullUrl = fullUrl.replace(/([^:]\/)\/+/g, "$1").split('?')[0];
+                            postUrl = fullUrl;
+                        } else {
+                            // Any group link > 50 chars
+                            for (const link of links) {
+                                const href = await link.getAttribute('href');
+                                if (href && href.includes('/groups/') && href.length > 50 && !href.includes('/user/')) {
+                                    postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
+                                    break;
+                                }
+                            }
+                        }
                     }
+
+                    // Determine location for job object
+                    let location = 'Unknown';
+                    if (textNorm.includes('remote') || textNorm.includes('tu xa') || textNorm.includes('online')) location = 'Remote';
+                    else if (textNorm.includes('can tho')) location = 'Cần Thơ';
+                    else if (textNorm.includes('ha noi') || textNorm.includes('ho chi minh') || textNorm.includes('hcm') || textNorm.includes('saigon')) location = 'Hanoi/HCM';
 
                     const job = {
-                        title: textRaw.split('\n')[0].slice(0, 100), // First line as title
+                        title: textRaw.split('\n')[0].slice(0, 100),
                         company: 'Facebook Group',
-                        url: postUrl, // Use extracted permalink or group URL fallback
-                        preview: textRaw.slice(0, 100).trim(), // Preview text for manual search
+                        url: postUrl,
+                        preview: textRaw.slice(0, 100).trim(),
                         salary: 'Negotiable',
-                        location: location, // Use detected location
+                        location: location,
                         source: 'Facebook',
                         techStack: 'Golang',
-                        description: textRaw.slice(0, 300), // Extract preview text for Telegram
-                        postedDate: foundDate ? foundDate.toLocaleDateString() : 'Recent',
+                        description: textRaw.slice(0, 300),
+                        postedDate: extractedTime, // Use captured time
                         matchScore: calculateMatchScore({ title: textRaw, location: location.toLowerCase() }),
-                        isFresher: isFresherPost // Flag for fresher/junior posts
+                        isFresher: isFresherPost
                     };
 
                     jobs.push(job);
-                    validPostsCount++; // Increment valid posts counter
+                    validPostsCount++;
                     console.log(`    ✅ Potential Post: ${job.title.slice(0, 40)}... (URL: ${job.url})`);
 
                 } catch (e) {
@@ -316,10 +311,9 @@ async function scrapeFacebook(page, reporter) {
             console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
         }
 
-        await randomDelay(3000, 6000); // Longer delay between groups
+        await randomDelay(3000, 6000);
     }
 
-    // Deduplicate by URL
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
     return uniqueJobs;
 }

@@ -64,7 +64,7 @@ async function main() {
             '--disable-setuid-sandbox',
             '--disable-blink-features=AutomationControlled',
             '--disable-infobars',
-            '--window-size=1366,768',
+            '--window-size=1280,800',
             '--disable-accelerated-2d-canvas',
             '--disable-gpu'
         ]
@@ -76,7 +76,7 @@ async function main() {
 
     const context = await browser.newContext({
         userAgent: userAgent,
-        viewport: { width: 1366, height: 768 },
+        viewport: { width: 1280, height: 800 },
         locale: 'vi-VN',
         timezoneId: 'Asia/Ho_Chi_Minh',
         permissions: ['geolocation'],
