@@ -30,3 +30,4 @@ Thumbs.db
 playwright-report/
 test-results/
 screenshots/
+tools/cookies-normalizer.js

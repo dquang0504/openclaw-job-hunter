@@ -128,9 +128,40 @@ async function scrapeFacebook(page, reporter) {
                     if (!textRaw || textRaw.trim().length === 0) continue;
 
                     const textNorm = normalizeText(textRaw);
-                    if (!CONFIG.keywordRegex.test(textNorm) && !textNorm.includes('golang')) continue;
+                    // 1. Mandatory Keywords: Must have 'golang' AND ('backend' OR 'developer' OR 'kỹ sư')
+                    // User requested "regex backend", so we ensure backend context.
+                    if (!textNorm.includes('golang')) continue;
 
-                    const isFresherPost = CONFIG.includeRegex.test(textNorm);
+                    // 2. Exclude Senior/Lead/High Experience (User Request)
+                    // Logic: Keep if Fresher/Junior.
+                    // If Neutral (no level keywords), KEEP it UNLESS it explicitly says Senior/Lead or High YoE.
+                    const isFresherOrJunior = CONFIG.includeRegex.test(textNorm) || textNorm.includes('fresher') || textNorm.includes('junior') || textNorm.includes('intern') || textNorm.includes('thực tập');
+                    const isSeniorOrLead = textNorm.includes('senior') || textNorm.includes('lead') || textNorm.includes('manager') || textNorm.includes('trưởng nhóm');
+
+                    // Years of experience check
+                    // Exclude if it mentions 3+ years, 4 years, etc. (Strict: max 2 years allowed for non-senior)
+                    // Matches: "3+", "3 năm", "3 years", "3yoe", "3 yoe"
+                    // We allow "1-2 years" or "0-2 years", but "1-3 years" will match "3 years" and be excluded (as is desired by user)
+                    const yoeMatch = textRaw.match(/([3-9]|\d{2,})\s*(\+|plus|\s*năm|\s*years?|\s*yoe)/i);
+
+                    if (!isFresherOrJunior) {
+                        // If NOT explicitly Fresher/Junior, we filter out Senior/HighYoE
+                        if (isSeniorOrLead) {
+                            console.log(`    ⏭️ Skipping Senior/Lead post: ${textRaw.slice(0, 30)}...`);
+                            continue;
+                        }
+                        if (yoeMatch) {
+                            console.log(`    ⏭️ Skipping High YoE post (${yoeMatch[0]}): ${textRaw.slice(0, 30)}...`);
+                            continue;
+                        }
+                        // If neither Senior nor High YoE, it is "Neutral" -> KEEP
+                    }
+
+                    // 3. User requested "regex backend" - let's ensure we are targeting relevant roles
+                    const jobKeywords = /backend|back-end|developer|engineer|lập trình|coder|dev/i;
+                    if (!jobKeywords.test(textNorm)) continue;
+
+                    const isFresherPost = isFresherOrJunior;
                     if (isFresherPost) console.log(`    🎯 FRESHER/JUNIOR post detected!`);
 
                     // Date Check (2 Months Logic)
