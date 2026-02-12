@@ -41,10 +41,12 @@ async function main() {
     const args = process.argv.slice(2);
     const isDryRun = args.includes('--dry-run');
     const platformArg = args.find(a => a.startsWith('--platform='));
-    const platform = platformArg ? platformArg.split('=')[1] : 'all';
+    const platformParam = platformArg ? platformArg.split('=')[1] : 'all';
+    const platforms = platformParam.split(',');
+    const shouldRun = (p) => platforms.includes('all') || platforms.includes(p);
     const skipAI = args.includes('--no-ai');
 
-    console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platform}, AI: ${!skipAI})`);
+    console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platformParam}, AI: ${!skipAI})`);
     console.log(`🕒 Execution started at: ${formatDateTime()}`);
 
     // Ensure directories exist
@@ -131,13 +133,13 @@ async function main() {
         // =====================================================================
 
         // Scrape TopCV
-        if (platform === 'all' || platform === 'topcv') {
+        if (shouldRun('topcv')) {
             const topcvJobs = await scrapeTopCV(page, reporter);
             allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
         }
 
         // Scrape Twitter
-        if (platform === 'all' || platform === 'twitter') {
+        if (shouldRun('twitter')) {
             const twitterJobs = await scrapeTwitter(page, reporter);
             allRawJobs = allRawJobs.concat(twitterJobs.map((j, i) => ({ ...j, id: `twitter-${i}` })));
         }
@@ -149,25 +151,25 @@ async function main() {
         // }
 
         // Scrape Facebook
-        if (platform === 'all' || platform === 'facebook') {
+        if (shouldRun('facebook')) {
             const fbJobs = await scrapeFacebook(page, reporter);
             allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
         }
 
         // Scrape Threads
-        if (platform === 'all' || platform === 'threads') {
+        if (shouldRun('threads')) {
             const threadsJobs = await scrapeThreads(page, reporter);
             allRawJobs = allRawJobs.concat(threadsJobs.map((j, i) => ({ ...j, id: `threads-${i}` })));
         }
 
         // Scrape Indeed
-        if (platform === 'all' || platform === 'indeed') {
+        if (shouldRun('indeed')) {
             const indeedJobs = await scrapeIndeed(page, reporter);
             allRawJobs = allRawJobs.concat(indeedJobs.map((j, i) => ({ ...j, id: `indeed-${i}` })));
         }
 
         // Monitor Vercel
-        if (platform === 'all' || platform === 'vercel') {
+        if (shouldRun('vercel')) {
             try {
                 console.log('⏳ Starting Vercel scrape with 1m timeout...');
                 await Promise.race([
@@ -180,7 +182,7 @@ async function main() {
         }
 
         // Monitor Cloudflare
-        if (platform === 'all' || platform === 'cloudflare') {
+        if (shouldRun('cloudflare')) {
             try {
                 console.log('⏳ Starting Cloudflare check with 30s timeout...');
                 await Promise.race([

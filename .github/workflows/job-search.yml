@@ -11,8 +11,19 @@ on:
 jobs:
   search-jobs:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Auto-kill if stuck
-    
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: facebook
+            arg: facebook
+          - name: threads
+            arg: threads
+          - name: others
+            # Groups lighter/faster scrapers together
+            arg: 'topcv,twitter,indeed,vercel,cloudflare'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,33 +51,9 @@ jobs:
           echo '${{ secrets.COOKIES_THREADS }}' > .cookies/cookies-threads.json
           echo '${{ secrets.COOKIES_VERCEL }}' > .cookies/cookies-vercel.json
       
-      # Clean old caches (older than 4 weeks)
-      - name: Clean old caches
-        continue-on-error: true
-        run: |
-          echo "🧹 Cleaning caches older than 4 weeks..."
-          
-          # Get timestamp 4 weeks ago
-          CUTOFF_DATE=$(date -d '4 weeks ago' --iso-8601=seconds)
-          echo "Cutoff date: $CUTOFF_DATE"
-          
-          # List all caches and delete old ones
-          # Limit 500: 6 runs/day × 60 days = 360 caches (with buffer)
-          gh cache list --limit 500 --json key,createdAt | \
-            jq -r --arg cutoff "$CUTOFF_DATE" \
-              '.[] | select(.createdAt < $cutoff) | .key' | \
-            while read cache_key; do
-              echo "Deleting old cache: $cache_key"
-              gh cache delete "$cache_key" || true
-            done
-          
-          echo "✅ Cache cleanup completed"
-        env:
-          GH_TOKEN: ${{ github.token }}
-      
-      # Restore caches (seen-jobs + rophim-cache + vercel-cache)
+      # Restore caches (Read-Only)
       - name: Restore caches
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             logs/seen-jobs.json
@@ -82,10 +69,91 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-        run: node execution/job-search.js
+        run: node execution/job-search.js --platform=${{ matrix.arg }}
       
-      # Save caches
-      - name: Save caches
+      # Upload state for merging
+      - name: Upload seen-jobs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: seen-jobs-${{ matrix.name }}
+          path: logs/seen-jobs.json
+          retention-days: 1
+          
+      - name: Upload vercel-cache
+        if: ${{ contains(matrix.arg, 'vercel') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-vercel
+          path: logs/vercel-cache.json
+          retention-days: 1
+
+      - name: Upload logs (optional)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ matrix.name }}-${{ github.run_number }}
+          path: logs/job-search-*.json
+          retention-days: 3
+
+  merge-jobs:
+    needs: search-jobs
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      # Clean old caches (moved here to run once)
+      - name: Clean old caches
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🧹 Cleaning caches older than 4 weeks..."
+          CUTOFF_DATE=$(date -d '4 weeks ago' --iso-8601=seconds)
+          gh cache list --limit 500 --json key,createdAt | \
+            jq -r --arg cutoff "$CUTOFF_DATE" \
+              '.[] | select(.createdAt < $cutoff) | .key' | \
+            while read cache_key; do
+              echo "Deleting old cache: $cache_key"
+              gh cache delete "$cache_key" || true
+            done
+      
+      - name: Restore base caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            logs/seen-jobs.json
+            logs/rophim-cache.json
+            logs/vercel-cache.json
+          key: logs-${{ github.run_id }}
+          restore-keys: |
+            logs-
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: .tmp/artifacts
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          
+      - name: Merge Deduplication Data
+        # Artifacts download to .tmp/artifacts/{artifact_name}/...
+        run: |
+          echo "Merging seen-jobs..."
+          node tools/merge-seen-jobs.js .tmp/artifacts logs/seen-jobs.json
+          
+          # Restore updated Vercel cache if exists
+          if [ -f .tmp/artifacts/cache-vercel/vercel-cache.json ]; then
+            echo "Updating vercel-cache.json"
+            cp .tmp/artifacts/cache-vercel/vercel-cache.json logs/vercel-cache.json
+          fi
+
+      - name: Save Final Cache
         uses: actions/cache/save@v4
         if: always()
         with:
@@ -94,11 +162,3 @@ jobs:
             logs/rophim-cache.json
             logs/vercel-cache.json
           key: logs-${{ github.run_id }}
-      
-      - name: Upload logs (optional)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: job-search-logs-${{ github.run_number }}
-          path: logs/
-          retention-days: 7

@@ -230,9 +230,10 @@ async function scrapeFacebook(page, reporter) {
                                             extractedTime = selectedText.trim();
                                             let cleanT = extractedTime;
 
-                                            // Safety: If too long or multiple lines, it's likely garbage/post content
-                                            if (cleanT.length > 40 || cleanT.includes('\n')) {
-                                                console.log(`      ⚠️ Timestamp likely garbage (${cleanT.length} chars). Fallback to 'Recent'.`);
+                                            // Safety: If too long, multiple lines, or too many words, it's likely garbage
+                                            const wordCount = cleanT.split(/\s+/).length;
+                                            if (cleanT.length > 40 || wordCount > 6 || cleanT.includes('\n') || cleanT.includes('\r')) {
+                                                console.log(`      ⚠️ Timestamp likely garbage (${cleanT.length} chars, ${wordCount} words). Fallback to 'Recent'.`);
                                                 extractedTime = 'Recent';
                                                 satisfied = true;
                                                 break;
