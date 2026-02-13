@@ -68,8 +68,9 @@ async function scrapeTopCV(page, reporter) {
                         const urlVal = await titleEl.getAttribute('href', { timeout: 100 }).catch(() => null);
 
                         // Improved Company Selector: target the span or link text directly
-                        const company = await card.locator('.company-name, a.company').first().textContent({ timeout: 100 }).catch(() => 'Unknown');
+                        const company = await card.locator('.company-name, .company-name a, .company a, .employer-name').first().textContent({ timeout: 100 }).catch(() => 'Unknown');
                         const location = await card.locator('.address, .location, .label-address').first().textContent({ timeout: 100 }).catch(() => 'Vietnam');
+                        const salary = await card.locator('.title-salary, .salary').first().textContent({ timeout: 100 }).catch(() => 'Negotiable');
 
                         if (!title) continue;
 
@@ -77,7 +78,7 @@ async function scrapeTopCV(page, reporter) {
                             title: title.trim(),
                             company: company.trim(),
                             url: urlVal?.startsWith('http') ? urlVal : `https://www.topcv.vn${urlVal}`,
-                            salary: 'Negotiable',
+                            salary: salary?.trim() || 'Negotiable',
                             location: location?.trim(),
                             source: 'TopCV.vn',
                             techStack: 'Golang'
