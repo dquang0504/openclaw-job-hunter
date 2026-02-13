@@ -258,7 +258,8 @@ async function main() {
         if (validatedNewJobs.length === 0) {
             console.log('ℹ️ No valid new jobs found after AI validation');
         } else {
-            const jobsToSend = validatedNewJobs.slice(0, 5);
+            // Send up to 8 jobs (increased to 8 for buffer strategy)
+            const jobsToSend = validatedNewJobs.slice(0, 8);
             const sentUrls = [];
 
             for (const job of jobsToSend) {

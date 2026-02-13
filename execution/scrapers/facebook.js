@@ -92,8 +92,8 @@ async function scrapeFacebook(page, reporter) {
             const totalPostsFound = await page.locator(postSelector).count();
             console.log(`  📄 Found ${totalPostsFound} visible posts`);
 
-            const maxValidPosts = 3;
-            const maxAttempts = Math.min(15, totalPostsFound);
+            const maxValidPosts = 10;
+            const maxAttempts = Math.min(30, totalPostsFound);
             let validPostsCount = 0;
 
             for (let i = 0; i < maxAttempts && validPostsCount < maxValidPosts; i++) {

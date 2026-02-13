@@ -19,7 +19,7 @@ type Cookie struct{
 	SameSite string `json:"sameSite"`
 }
 
-func LoadCookies(path string) ([]playwright.Cookie, error){
+func LoadCookies(path string) ([]playwright.OptionalCookie, error){
 	data, err := os.ReadFile(path)
 	if err != nil{
 		return nil, err
@@ -30,32 +30,32 @@ func LoadCookies(path string) ([]playwright.Cookie, error){
 		return nil, err
 	}
 
-	pwCookies := make([]playwright.Cookie, len(cookies))
+	pwCookies := make([]playwright.OptionalCookie, len(cookies))
 	for i, c := range cookies{
 		pwCookies[i] = c.ToPlayWright()
 	}
 	return pwCookies, nil
 }
 
-func (c Cookie) ToPlayWright() playwright.Cookie {
-	pwCookie := playwright.Cookie{
+func (c Cookie) ToPlayWright() playwright.OptionalCookie {
+	pwCookie := playwright.OptionalCookie{
 		Name: c.Name,
 		Value: c.Value,
-		Domain: *playwright.String(c.Domain),
-		Path: *playwright.String(c.Path),
+		Domain: playwright.String(c.Domain),
+		Path: playwright.String(c.Path),
 	}
     
 	if c.Expires > 0 {
-		pwCookie.Expires = *playwright.Float(c.Expires)
+		pwCookie.Expires = playwright.Float(c.Expires)
 	}
 
 	if c.HTTPOnly {
-		pwCookie.HttpOnly = *playwright.Bool(true)
+		pwCookie.HttpOnly = playwright.Bool(true)
 
 	}
 
 	if c.Secure{
-		pwCookie.Secure = *playwright.Bool(true)
+		pwCookie.Secure = playwright.Bool(true)
 	}
 
 	switch c.SameSite{

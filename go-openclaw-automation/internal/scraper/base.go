@@ -3,7 +3,11 @@
 
 package scraper
 
-import "context"
+import (
+	"context"
+
+	"github.com/playwright-community/playwright-go"
+)
 
 type Job struct{
 	Title string
@@ -15,13 +19,14 @@ type Job struct{
 	Description string
 	Source string
 	PostedDate string
-	MatchScore string
+	MatchScore int
 }
 
+//Scraper defines the interface that all platform scrapers must implement
 type Scraper interface{
 	//Scrape jobs from the platform
-	Scrape(ctx context.Context) ([]Job, error)
+	Scrape(ctx context.Context, page playwright.Page) ([]Job, error)
 
-	//Name of the scraper
+	//Name is the platform name (TopCV, Facebook, ...)
 	Name() string
 }

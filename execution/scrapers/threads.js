@@ -171,7 +171,7 @@ function extractPostsFromJSON(data) {
 async function scrapeKeyword(page, keyword, reporter) {
     const jobs = [];
     const seenPostIds = new Set();
-    const TARGET_POSTS_PER_KEYWORD = 100;
+    const TARGET_POSTS_PER_KEYWORD = 150;
 
     // Timespan: 2 months (60 days)
     // Dynamic Filter

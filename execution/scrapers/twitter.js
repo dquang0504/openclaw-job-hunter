@@ -45,7 +45,7 @@ async function scrapeTwitter(page, reporter) {
         console.log(`  📦 Found ${tweetElements.length} tweets`);
 
         // Collect raw tweet data - NO AI validation here
-        for (let i = 0; i < Math.min(tweetElements.length, 10); i++) {
+        for (let i = 0; i < Math.min(tweetElements.length, 30); i++) {
             try {
                 const tweet = tweetElements[i];
                 const text = await tweet.locator('[data-testid="tweetText"]').textContent().catch(() => null);

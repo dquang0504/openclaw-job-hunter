@@ -58,8 +58,8 @@ async function scrapeTopCV(page, reporter) {
                 const jobCards = await page.locator('.job-item-search-result').all();
                 console.log(`    📦 Found ${jobCards.length} job cards`);
 
-                // Process only top 10 for speed
-                for (const card of jobCards.slice(0, 10)) {
+                // Process only top 20 for speed (increased from 10)
+                for (const card of jobCards.slice(0, 20)) {
                     try {
                         const titleEl = card.locator('h3.title a, .title-block a, a.title').first();
                         const title = await titleEl.textContent().catch(() => null);
