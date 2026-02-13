@@ -31,9 +31,10 @@ async function scrapeTopCV(page, reporter) {
                 // Slugify keyword: "golang" -> "golang"
                 const slug = keyword.toLowerCase().split(/\s+/).join('-');
 
-                // Specific URL for Can Tho location (kl20 / l20)
-                const searchUrl = `https://www.topcv.vn/tim-viec-lam-${slug}-tai-can-tho-kl20?exp=${exp}&sort=new&type_keyword=1&sba=1&locations=l20&saturday_status=0`;
-                console.log(`  🔍 Searching: ${keyword} (Exp: ${exp}) - Cần Thơ`);
+                // Specific URL for Can Tho (l20) AND Ho Chi Minh (l2)
+                // &locations=l2_l20 means both
+                const searchUrl = `https://www.topcv.vn/tim-viec-lam-${slug}-tai-ho-chi-minh-kl2?exp=${exp}&sort=new&type_keyword=1&sba=1&locations=l2_l20&saturday_status=0`;
+                console.log(`  🔍 Searching: ${keyword} (Exp: ${exp}) - Cần Thơ & HCM`);
 
                 // Reduced timeout and no random delay
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
@@ -82,7 +83,7 @@ async function scrapeTopCV(page, reporter) {
 
                         // Use Normalized text for checks
                         const jobTextNorm = normalizeText(`${job.title} ${job.company}`);
-                        const locLower = normalizeText(job.location);
+                        // const locLower = normalizeText(job.location); // Not strict filtering location since we search for specific locs
 
                         // 1. Strict Keyword Check
                         if (!jobTextNorm.includes('go') && !jobTextNorm.includes('golang')) continue;
@@ -90,11 +91,14 @@ async function scrapeTopCV(page, reporter) {
                         // 2. Strict Exclude (Experience)
                         if (CONFIG.excludeRegex.test(jobTextNorm)) continue;
 
-                        // 3. Strict Location (Remote or Can Tho)
+                        // 3. Strict Location (Remote or Can Tho or HCM)
+                        // Since we search via URL parameters (l2_l20), the results should be valid.
+                        // We relax the strict block on "Hanoi/HCM" since HCM is now allowed.
+                        /*
                         const isTarget = locLower.includes('remote') || locLower.includes('tu xa') || locLower.includes('can tho');
                         const isHanoiHCM = locLower.includes('ha noi') || locLower.includes('ho chi minh') || locLower.includes('hcm') || locLower.includes('saigon');
-
-                        if (!isTarget && isHanoiHCM) continue;
+                        if (!isTarget && isHanoiHCM) continue; 
+                        */
 
                         job.matchScore = calculateMatchScore(job);
                         jobs.push(job);
