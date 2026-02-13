@@ -135,6 +135,7 @@ async function scrapeFacebook(page, reporter) {
                             console.log(`    ⏭️ Skipping High YoE post (${yoeMatch[0]}): ${textRaw.slice(0, 30)}...`);
                             continue;
                         }
+                        // If no fresher signal AND no diverse tech stack signal, might be generic spam -> penalize later in score
                     }
 
                     const jobKeywords = /backend|back-end|developer|engineer|lập trình|coder|dev|phát triển|xây dựng|hệ thống|technical|tech|tuyển|hiring/i;

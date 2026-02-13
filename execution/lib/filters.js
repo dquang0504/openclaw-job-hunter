@@ -25,6 +25,13 @@ function calculateMatchScore(job) {
     // Tech stack bonus (+1)
     if (/\b(docker|kubernetes|aws|gcp|microservices|rest\s*api|grpc)\b/i.test(text)) score += 1;
 
+    // PENALTY: Experience > 2 years (Heavy penalty to force score < 5)
+    // Matches: "3 years", "3+ years", "minimum 3 years", "at least 3 years"
+    if (/\b([3-9]|\d{2,})\s*(\+|plus|\s*năm|\s*years?|\s*yoe)/i.test(text)) {
+        console.log(`    ⚠️ Penalty applied: High YoE detected`);
+        score -= 5;
+    }
+
     return Math.min(score, 10);
 }
 
@@ -39,6 +46,9 @@ function shouldIncludeJob(job) {
 
     // Exclude senior/lead/manager or >2 years
     if (CONFIG.excludeRegex.test(text)) return false;
+
+    // Direct check for "3 years", "3 nam", "3+ years"
+    if (/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|years?|yoe)\b/i.test(text)) return false;
 
     // Must be from valid years
     if (!isRecentJob(job.postedDate)) return false;

@@ -197,6 +197,21 @@ async function main() {
         console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
 
         // =====================================================================
+        // STEP 1.5: PRE-FILTERING (Strict Date & Experience)
+        // =====================================================================
+        const { shouldIncludeJob } = require('./lib/filters');
+
+        const initialCount = allRawJobs.length;
+        allRawJobs = allRawJobs.filter(job => {
+            const shouldInclude = shouldIncludeJob(job);
+            if (!shouldInclude) {
+                // console.log(`  Filtered out: ${job.title} (${job.postedDate})`);
+            }
+            return shouldInclude;
+        });
+        console.log(`\n🧹 Pre-filtering: ${initialCount} -> ${allRawJobs.length} jobs (removed old/irrelevant)`);
+
+        // =====================================================================
         // STEP 2: DEDUPLICATION (Filter BEFORE AI to save tokens)
         // =====================================================================
 
