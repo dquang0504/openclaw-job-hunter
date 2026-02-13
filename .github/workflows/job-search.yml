@@ -22,7 +22,7 @@ jobs:
             arg: threads
           - name: others
             # Groups lighter/faster scrapers together
-            arg: 'topcv,twitter,indeed,vercel,cloudflare'
+            arg: 'topcv,twitter,indeed,vercel,cloudflare,topdev,itviec'
 
     steps:
       - name: Checkout code
@@ -49,6 +49,8 @@ jobs:
           echo '${{ secrets.COOKIES_LINKEDIN }}' > .cookies/cookies-linkedin.json
           echo '${{ secrets.COOKIES_FACEBOOK }}' > .cookies/cookies-facebook.json
           echo '${{ secrets.COOKIES_THREADS }}' > .cookies/cookies-threads.json
+          echo '${{ secrets.COOKIES_TOPDEV }}' > .cookies/cookies-topdev.json
+          echo '${{ secrets.COOKIES_ITVIEC }}' > .cookies/cookies-itviec.json
           echo '${{ secrets.COOKIES_VERCEL }}' > .cookies/cookies-vercel.json
       
       # Restore caches (Read-Only)

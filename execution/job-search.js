@@ -32,6 +32,8 @@ const { scrapeThreads } = require('./scrapers/threads');
 const { scrapeIndeed } = require('./scrapers/indeed');
 const { scrapeVercel } = require('./scrapers/vercel');
 const { scrapeCloudflare } = require('./scrapers/cloudflare');
+const { scrapeTopDev } = require('./scrapers/topdev');
+const { scrapeITViec } = require('./scrapers/itviec');
 
 // =============================================================================
 // MAIN EXECUTION
@@ -92,7 +94,9 @@ async function main() {
         linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json'),
         facebook: path.join(CONFIG.paths.cookies, 'cookies-facebook.json'),
         threads: path.join(CONFIG.paths.cookies, 'cookies-threads.json'),
-        vercel: path.join(CONFIG.paths.cookies, 'cookies-vercel.json')
+        vercel: path.join(CONFIG.paths.cookies, 'cookies-vercel.json'),
+        topdev: path.join(CONFIG.paths.cookies, 'cookies-topdev.json'),
+        itviec: path.join(CONFIG.paths.cookies, 'cookies-itviec.json')
     };
 
     for (const [name, file] of Object.entries(cookieFiles)) {
@@ -166,6 +170,18 @@ async function main() {
         if (shouldRun('indeed')) {
             const indeedJobs = await scrapeIndeed(page, reporter);
             allRawJobs = allRawJobs.concat(indeedJobs.map((j, i) => ({ ...j, id: `indeed-${i}` })));
+        }
+
+        // Scrape TopDev
+        if (shouldRun('topdev')) {
+            const topdevJobs = await scrapeTopDev(page, reporter);
+            allRawJobs = allRawJobs.concat(topdevJobs.map((j, i) => ({ ...j, id: `topdev-${i}` })));
+        }
+
+        // Scrape ITViec
+        if (shouldRun('itviec')) {
+            const itviecJobs = await scrapeITViec(page, reporter);
+            allRawJobs = allRawJobs.concat(itviecJobs.map((j, i) => ({ ...j, id: `itviec-${i}` })));
         }
 
         // Monitor Vercel
