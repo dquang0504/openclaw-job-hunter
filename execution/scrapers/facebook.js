@@ -124,7 +124,7 @@ async function scrapeFacebook(page, reporter) {
 
                     const isFresherOrJunior = CONFIG.includeRegex.test(textNorm) || /fresher|junior|intern|thực tập|trainee|đào tạo|learning|newbie/i.test(textNorm);
                     const isSeniorOrLead = textNorm.includes('senior') || textNorm.includes('lead') || textNorm.includes('manager') || textNorm.includes('trưởng nhóm');
-                    const yoeMatch = textRaw.match(/([3-9]|\d{2,})\s*(\+|plus|\s*năm|\s*years?|\s*yoe)/i);
+                    const yoeMatch = textRaw.match(/([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)/i);
 
                     if (!isFresherOrJunior) {
                         if (isSeniorOrLead) {

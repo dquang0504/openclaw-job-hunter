@@ -81,6 +81,7 @@ Rules:
 3. Score from 1-10 (10 = Perfect Golang Job match, 1 = Spam/Irrelevant).
 4. Extract key details: Location (e.g., "Remote", "Hanoi"), Posted Date (convert relative to absolute if possible, or keep as is), Tech Stack.
 5. Ignore "looking for job" posts (candidates asking for work).
+6. CRITICAL: If the job requires more than 2 years of experience (e.g. 3+, 3-5 years, Senior), mark isValid=false or score=1. We are looking for Fresher/Junior/Mid (<2 YOE) only.
 
 Output JSON ARRAY ONLY. No markdown, no text.
 Format:
