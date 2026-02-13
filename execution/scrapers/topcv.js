@@ -47,7 +47,7 @@ async function scrapeTopCV(page, reporter) {
 
                 // Fast scroll to trigger lazy load
                 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                await page.waitForTimeout(500);
+                // Removed explicit wait as requested
 
                 // Check if "No suitable job" message is visible (User confirmed logic)
                 if (await page.locator('.none-suitable-job').isVisible()) {
@@ -59,15 +59,17 @@ async function scrapeTopCV(page, reporter) {
                 const jobCards = await page.locator('.job-item-search-result').all();
                 console.log(`    📦 Found ${jobCards.length} job cards`);
 
-                // Process only top 20 for speed (increased from 10)
+                // Process only top 20 for speed
                 for (const card of jobCards.slice(0, 20)) {
                     try {
                         const titleEl = card.locator('h3.title a, .title-block a, a.title').first();
-                        const title = await titleEl.textContent().catch(() => null);
-                        const urlVal = await titleEl.getAttribute('href').catch(() => null);
+                        // Fail fast (100ms) if element not found to avoid blocking
+                        const title = await titleEl.textContent({ timeout: 100 }).catch(() => null);
+                        const urlVal = await titleEl.getAttribute('href', { timeout: 100 }).catch(() => null);
 
-                        const company = await card.locator('.company-name a, .company a, .employer-name').first().textContent().catch(() => 'Unknown');
-                        const location = await card.locator('.address, .location, .label-address').first().textContent().catch(() => 'Vietnam');
+                        // Improved Company Selector: target the span or link text directly
+                        const company = await card.locator('.company-name, a.company').first().textContent({ timeout: 100 }).catch(() => 'Unknown');
+                        const location = await card.locator('.address, .location, .label-address').first().textContent({ timeout: 100 }).catch(() => 'Vietnam');
 
                         if (!title) continue;
 
