@@ -158,8 +158,9 @@ async function scrapeITViec(page, reporter) {
                             // Combine Job Description and Skills/Experience
                             // Use innerText to preserve newlines for better regex matching
                             // And select the whole section, not just .paragraph as items are often in ul/li
-                            const jobDesc = await detailPanel.locator('.job-description').innerText().catch(() => '');
-                            const jobSkills = await detailPanel.locator('.job-experiences').innerText().catch(() => '');
+                            // CRITICAL: Add short timeout so we don't wait 30s if section is missing
+                            const jobDesc = await detailPanel.locator('.job-description').innerText({ timeout: 3000 }).catch(() => '');
+                            const jobSkills = await detailPanel.locator('.job-experiences').innerText({ timeout: 3000 }).catch(() => '');
                             description = `${jobDesc}\n\n${jobSkills}`;
                         }
 
@@ -183,7 +184,7 @@ async function scrapeITViec(page, reporter) {
                         // High YoE Check (Strict > 3 years)
                         // Debug: Log if suspicious text found to verify extraction
                         if (description && /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(description)) {
-                            console.log(`      ⚠️ Skipped (High YoE in desc): ${title}`);
+                            // console.log(`      ⚠️ Skipped (High YoE in desc): ${title}`);
                             continue;
                         }
 
