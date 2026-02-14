@@ -24,9 +24,9 @@ async function scrapeVercel(page, reporter) {
 
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Wait for hydration
+        // Wait for hydration (reduced from 3s to 2s)
         try {
-            await page.waitForTimeout(3000); // Give React time to hydrate
+            await page.waitForTimeout(2000);
             await page.waitForSelector('text=Visitors', { timeout: 10000 });
         } catch (e) { }
 
@@ -75,8 +75,14 @@ async function scrapeVercel(page, reporter) {
                     console.log(`  🔄 Attempt ${attempt}/${maxRetries} to scrape Vercel data...`);
 
                     if (attempt > 1) {
+                        // Check if page is still open before reload
+                        if (page.isClosed()) {
+                            console.log('  ❌ Page closed during retry. Aborting.');
+                            return;
+                        }
                         await page.reload({ waitUntil: 'domcontentloaded' });
-                        await page.waitForTimeout(5000); // Wait for hydration
+                        // Reduced from 5s to 3s
+                        await page.waitForTimeout(3000);
                     }
 
                     // Debug: Dump Body Text to see what's actually rendered

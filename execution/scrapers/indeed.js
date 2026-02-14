@@ -37,8 +37,8 @@ async function scrapeIndeed(page, reporter) {
                 // Cloudflare Check
                 const pageTitle = await page.title();
                 if (pageTitle.includes('Just a moment') || pageTitle.includes('Challenge')) {
-                    console.log('  ⚠️ Cloudflare detected. Waiting 5s...');
-                    await page.waitForTimeout(5000);
+                    console.log('  ⚠️ Cloudflare detected. Waiting 3s...');
+                    await page.waitForTimeout(3000);
                 }
 
                 await humanScroll(page);
@@ -112,11 +112,11 @@ async function scrapeIndeed(page, reporter) {
                         let description = '';
 
                         try {
-                            await card.scrollIntoViewIfNeeded({ timeout: 5000 });
-                            await linkEl.click({ timeout: 3000 }).catch(() => card.click({ timeout: 3000, force: true }));
+                            await card.scrollIntoViewIfNeeded({ timeout: 3000 });
+                            await linkEl.click({ timeout: 2000 }).catch(() => card.click({ timeout: 2000, force: true }));
 
                             const descSelector = '#jobDescriptionText, .jobsearch-JobComponent-description';
-                            await page.waitForSelector(descSelector, { timeout: 5000 });
+                            await page.waitForSelector(descSelector, { timeout: 4000 });
                             description = await page.innerText(descSelector).catch(() => '');
                         } catch (e) {
                             console.log(`      ⚠️ Desc load failed/timeout for ${title}`);
@@ -163,7 +163,8 @@ async function scrapeIndeed(page, reporter) {
                         seenKeys.add(uniqueKey);
                         console.log(`      ✅ MATCHED: ${job.title}`);
 
-                        await randomDelay(500, 1000);
+                        // Reduced delay for faster processing
+                        await randomDelay(300, 600);
 
                     } catch (e) {
                         console.log(`    ⚠️ Error processing card: ${e.message}`);

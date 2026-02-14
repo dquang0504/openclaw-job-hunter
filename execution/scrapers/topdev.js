@@ -30,7 +30,18 @@ async function scrapeTopDev(page, reporter) {
                 const searchUrl = `https://topdev.vn/jobs/search?keyword=${encodeURIComponent(keyword)}&page=1&region_ids=79%2C92&job_levels_ids=${level.id}`;
                 console.log(`  🔍 Searching: ${keyword} (${level.name}) - HCM/Can Tho`);
 
-                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+                // CRITICAL FIX: Increased timeout to 40s for CI environments
+                // Try domcontentloaded first, fallback to networkidle if needed
+                try {
+                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 40000 });
+                } catch (e) {
+                    if (e.message.includes('Timeout')) {
+                        console.log(`    ⚠️ domcontentloaded timeout, trying networkidle...`);
+                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 40000 });
+                    } else {
+                        throw e;
+                    }
+                }
 
                 // 1. Check for "Jobs you may be interested in" (Indicates no exact matches)
                 // HTML: <span class="font-semibold text-brand-500">Jobs you may be interested in</span>
@@ -42,8 +53,8 @@ async function scrapeTopDev(page, reporter) {
 
                 if (hasSuggestion) continue;
 
-                // Wait for list to populate
-                await page.waitForTimeout(3000);
+                // Reduced wait time from 3s to 2s
+                await page.waitForTimeout(2000);
 
                 // Select all job cards using specific User Provided Selector
                 // KEY DIFFERENCE: List items have 'cursor-pointer', Detail header usually does not.

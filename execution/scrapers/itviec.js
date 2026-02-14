@@ -125,88 +125,92 @@ async function scrapeITViec(page, reporter) {
 
                 for (const item of jobCards.slice(0, 15)) {
                     try {
-                        let card = item;
+                        // CRITICAL FIX: Wrap entire card processing in timeout to prevent hanging
+                        await Promise.race([
+                            (async () => {
+                                let card = item;
 
-                        // Extract Basic Info from Card
-                        // Title: <h3 ...>Title</h3>
-                        const titleEl = card.locator('h3').first();
-                        const title = await titleEl.textContent().catch(() => 'Unknown Title');
+                                // Extract Basic Info from Card
+                                // Title: <h3 ...>Title</h3>
+                                const titleEl = card.locator('h3').first();
+                                const title = await titleEl.textContent().catch(() => 'Unknown Title');
 
-                        const company = await card.locator('a.text-rich-grey, span.text-rich-grey').first().textContent().catch(() => 'Unknown Company');
+                                const company = await card.locator('a.text-rich-grey, span.text-rich-grey').first().textContent().catch(() => 'Unknown Company');
 
-                        // Salary
-                        const salary = await card.locator('div.salary span.ips-2').first().textContent().catch(() => 'Negotiable');
+                                // Salary
+                                const salary = await card.locator('div.salary span.ips-2').first().textContent().catch(() => 'Negotiable');
 
-                        // Location (from card)
-                        const locationText = await card.locator('div.text-rich-grey[title]').last().textContent().catch(() => location.name);
+                                // Location (from card)
+                                const locationText = await card.locator('div.text-rich-grey[title]').last().textContent().catch(() => location.name);
 
-                        // Click to load details (Right Panel)
-                        // Ensure we click the card container or the title to trigger selection
-                        await card.scrollIntoViewIfNeeded();
-                        await card.click({ force: true });
+                                // Click to load details (Right Panel)
+                                // Ensure we click the card container or the title to trigger selection
+                                await card.scrollIntoViewIfNeeded();
+                                await card.click({ force: true });
 
-                        // Speed optimization: Short fix wait instead of waiting for specific element changes if site is fast
-                        // User requested "Super fast"
-                        await page.waitForTimeout(500);
+                                // Reduced wait time for faster processing
+                                await page.waitForTimeout(300);
 
-                        // Capture Dynamic URL
-                        const fullLink = page.url();
+                                // Capture Dynamic URL
+                                const fullLink = page.url();
 
-                        // Wait for Detail Panel (should be visible quickly)
-                        const detailPanel = page.locator('div.preview-job-content');
+                                // Wait for Detail Panel (should be visible quickly)
+                                const detailPanel = page.locator('div.preview-job-content');
 
-                        // Extract Details
-                        let description = '';
-                        // Fast check if visible
-                        if (await detailPanel.isVisible()) {
-                            // Combine Job Description and Skills/Experience
-                            // Use innerText to preserve newlines for better regex matching
-                            // And select the whole section, not just .paragraph as items are often in ul/li
-                            // CRITICAL: Add short timeout so we don't wait 30s if section is missing
-                            const jobDesc = await detailPanel.locator('.job-description').innerText({ timeout: 3000 }).catch(() => '');
-                            const jobSkills = await detailPanel.locator('.job-experiences').innerText({ timeout: 3000 }).catch(() => '');
-                            description = `${jobDesc}\n\n${jobSkills}`;
-                        }
+                                // Extract Details
+                                let description = '';
+                                // Fast check if visible with short timeout
+                                const isPanelVisible = await detailPanel.isVisible({ timeout: 2000 }).catch(() => false);
+                                if (isPanelVisible) {
+                                    // CRITICAL: Reduced timeout to 1.5s to fail fast
+                                    const jobDesc = await detailPanel.locator('.job-description').innerText({ timeout: 1500 }).catch(() => '');
+                                    const jobSkills = await detailPanel.locator('.job-experiences').innerText({ timeout: 1500 }).catch(() => '');
+                                    description = `${jobDesc}\n\n${jobSkills}`;
+                                }
 
-                        // Cleanup
-                        const job = {
-                            title: title.trim(),
-                            company: company.trim(),
-                            url: fullLink,
-                            salary: salary.trim(),
-                            location: locationText.trim(),
-                            source: 'ITViec',
-                            description: description.trim().slice(0, 5000), // Keep full for filtering first
-                            techStack: 'Golang' // Placeholder
-                        };
+                                // Cleanup
+                                const job = {
+                                    title: title.trim(),
+                                    company: company.trim(),
+                                    url: fullLink,
+                                    salary: salary.trim(),
+                                    location: locationText.trim(),
+                                    source: 'ITViec',
+                                    description: description.trim().slice(0, 5000), // Keep full for filtering first
+                                    techStack: 'Golang' // Placeholder
+                                };
 
-                        job.matchScore = calculateMatchScore(job);
+                                job.matchScore = calculateMatchScore(job);
 
-                        // Filters
-                        if (CONFIG.excludeRegex.test(job.title)) continue;
+                                // Filters
+                                if (CONFIG.excludeRegex.test(job.title)) return;
 
-                        // High YoE Check (Strict > 3 years)
-                        // Debug: Log if suspicious text found to verify extraction
-                        if (description && /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(description)) {
-                            // console.log(`      ⚠️ Skipped (High YoE in desc): ${title}`);
-                            continue;
-                        }
+                                // High YoE Check (Strict > 3 years)
+                                if (description && /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(description)) {
+                                    return;
+                                }
 
-                        // Config Keyword Check
-                        const kLower = keyword.toLowerCase();
-                        if (!job.title.toLowerCase().includes(kLower) && !job.description.toLowerCase().includes(kLower)) {
-                            // console.log(`      ⏭️ Skipped (Keyword mismatch): ${title}`);
-                            continue;
-                        }
+                                // Config Keyword Check
+                                const kLower = keyword.toLowerCase();
+                                if (!job.title.toLowerCase().includes(kLower) && !job.description.toLowerCase().includes(kLower)) {
+                                    return;
+                                }
 
-                        // Truncate description for output/log as requested
-                        job.description = job.description.slice(0, 100) + '...';
+                                // Truncate description for output/log as requested
+                                job.description = job.description.slice(0, 100) + '...';
 
-                        jobs.push(job);
-                        console.log(`      ✅ ${job.title} - ${job.company}`);
+                                jobs.push(job);
+                                console.log(`      ✅ ${job.title} - ${job.company}`);
+                            })(),
+                            // Timeout promise: 8 seconds max per card
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Card processing timeout')), 8000))
+                        ]);
 
                     } catch (e) {
-                        // console.warn('      Failed to process a card:', e.message);
+                        if (e.message === 'Card processing timeout') {
+                            console.warn('      ⏱️ Card processing timed out (8s), skipping...');
+                        }
+                        // Silent fail for other errors
                     }
                 }
 
