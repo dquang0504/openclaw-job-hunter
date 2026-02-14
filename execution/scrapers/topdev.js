@@ -6,6 +6,7 @@
 const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
 const { randomDelay, mouseJiggle, smoothScroll } = require('../lib/stealth');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Scrape jobs from TopDev.vn
@@ -16,6 +17,7 @@ async function scrapeTopDev(page, reporter) {
     console.log('📋 Searching TopDev.vn...');
 
     const jobs = [];
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
     const keywords = CONFIG.keywords || ['golang'];
 
     // TopDev Levels: 1616 (Intern), 1617 (Fresher)
@@ -32,30 +34,52 @@ async function scrapeTopDev(page, reporter) {
                 const searchUrl = `https://topdev.vn/jobs/search?keyword=${encodeURIComponent(keyword)}&page=1&region_ids=79%2C92&job_levels_ids=${level.id}`;
                 console.log(`  🔍 Searching: ${keyword} (${level.name}) - HCM/Can Tho`);
 
-                // STEALTH MODE: Navigate with realistic behavior
+                // STEALTH MODE: Navigate with realistic behavior (2 minute timeout)
                 try {
-                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
                 } catch (e) {
                     if (e.message.includes('Timeout')) {
                         console.log(`    ⚠️ domcontentloaded timeout, trying networkidle...`);
-                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 45000 });
+                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 120000 });
                     } else {
                         throw e;
                     }
                 }
 
-                // ANTI-BOT: Check for Cloudflare challenge
+                // DEBUG: Log current page info
                 const pageTitle = await page.title();
+                const currentUrl = page.url();
+                console.log(`    🔍 DEBUG: Page title: ${pageTitle}`);
+                console.log(`    🔍 DEBUG: Current URL: ${currentUrl}`);
+
+                // ANTI-BOT: Check for Cloudflare challenge
                 if (pageTitle.includes('Just a moment') || pageTitle.includes('Checking your browser')) {
                     console.log('    🛡️ Cloudflare challenge detected. Waiting...');
-                    // Wait for challenge to complete (usually 5-10 seconds)
+                    await screenshotDebugger.captureCloudflare(page, 'TopDev');
                     await page.waitForTimeout(8000);
 
-                    // Check if still on challenge page
                     const stillChallenged = await page.title().then(t => t.includes('Just a moment'));
                     if (stillChallenged) {
                         console.log('    ⚠️ Cloudflare challenge still active. Waiting longer...');
                         await page.waitForTimeout(7000);
+                    }
+                }
+
+                // CHECK: Promo popup redirect (hiring-reward-thang-1-2026)
+                if (currentUrl.includes('hiring-reward') || currentUrl.includes('promo')) {
+                    console.log('    🎁 Promo popup detected! Attempting to close...');
+                    await screenshotDebugger.captureAndSend(page, 'topdev-promo-popup', '🎁 TopDev: Promo popup detected');
+
+                    // Try to close popup or go back
+                    const closeButton = page.locator('button:has-text("Close"), button:has-text("×"), [aria-label="Close"]').first();
+                    if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+                        await closeButton.click();
+                        console.log('    ✅ Closed promo popup');
+                        await page.waitForTimeout(1000);
+                    } else {
+                        console.log('    ⚠️ No close button found, going back...');
+                        await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 });
+                        await page.waitForTimeout(2000);
                     }
                 }
 
