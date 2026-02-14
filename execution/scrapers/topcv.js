@@ -5,6 +5,7 @@
 const path = require('path');
 const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -20,6 +21,7 @@ async function scrapeTopCV(page, reporter) {
     console.log('📋 Searching TopCV.vn...');
 
     const jobs = [];
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     console.log(`  🔍 Searching with ${CONFIG.keywords.length} keywords...`);
 
@@ -43,6 +45,10 @@ async function scrapeTopCV(page, reporter) {
                 const pageTitle = await page.title();
                 if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
                     console.log('    🛡️ Cloudflare challenge detected. Waiting...');
+
+                    // Capture screenshot of Cloudflare page
+                    await screenshotDebugger.captureCloudflare(page, 'TopCV');
+
                     // Wait for challenge to complete (usually 5-10 seconds)
                     await page.waitForTimeout(8000);
 
@@ -56,6 +62,8 @@ async function scrapeTopCV(page, reporter) {
                         const finalCheck = await page.title().then(t => t.includes('Attention Required') || t.includes('Cloudflare'));
                         if (finalCheck) {
                             console.log('    ❌ Cloudflare challenge failed. Skipping...');
+                            // Capture final screenshot before skipping
+                            await screenshotDebugger.captureAndSend(page, 'topcv-cloudflare-failed', '❌ TopCV: Cloudflare challenge failed after 15s');
                             continue;
                         }
                     }

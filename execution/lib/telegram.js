@@ -48,6 +48,15 @@ class TelegramReporter {
         await this.bot.sendMessage(this.chatId, `❌ Error: ${error}`);
     }
 
+    async sendPhoto(photoPath, caption = '') {
+        const fs = require('fs');
+        if (!fs.existsSync(photoPath)) {
+            console.error(`❌ Photo not found: ${photoPath}`);
+            return;
+        }
+        await this.bot.sendPhoto(this.chatId, photoPath, { caption });
+    }
+
     escapeMarkdown(text) {
         return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
     }
