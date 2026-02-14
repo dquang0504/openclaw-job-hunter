@@ -73,7 +73,8 @@ async function scrapeITViec(page, reporter) {
 
                         if (await fresherCheckbox.count() > 0) {
                             // Force click because sometimes label overlay intercepts or opacity issues
-                            await fresherCheckbox.first().click({ force: true });
+                            // Add timeout to fail fast if not interactable
+                            await fresherCheckbox.first().click({ force: true, timeout: 3000 });
                             console.log('    🔽 Filtered by Level: Fresher');
 
                             // Wait for results to update.
