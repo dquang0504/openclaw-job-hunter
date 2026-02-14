@@ -1,9 +1,11 @@
 /**
  * TopDev.vn Scraper
+ * Enhanced with anti-bot detection measures
  */
 
 const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
+const { randomDelay, mouseJiggle, smoothScroll } = require('../lib/stealth');
 
 /**
  * Scrape jobs from TopDev.vn
@@ -30,21 +32,40 @@ async function scrapeTopDev(page, reporter) {
                 const searchUrl = `https://topdev.vn/jobs/search?keyword=${encodeURIComponent(keyword)}&page=1&region_ids=79%2C92&job_levels_ids=${level.id}`;
                 console.log(`  🔍 Searching: ${keyword} (${level.name}) - HCM/Can Tho`);
 
-                // CRITICAL FIX: Increased timeout to 40s for CI environments
-                // Try domcontentloaded first, fallback to networkidle if needed
+                // STEALTH MODE: Navigate with realistic behavior
                 try {
-                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 40000 });
+                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
                 } catch (e) {
                     if (e.message.includes('Timeout')) {
                         console.log(`    ⚠️ domcontentloaded timeout, trying networkidle...`);
-                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 40000 });
+                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 45000 });
                     } else {
                         throw e;
                     }
                 }
 
+                // ANTI-BOT: Check for Cloudflare challenge
+                const pageTitle = await page.title();
+                if (pageTitle.includes('Just a moment') || pageTitle.includes('Checking your browser')) {
+                    console.log('    🛡️ Cloudflare challenge detected. Waiting...');
+                    // Wait for challenge to complete (usually 5-10 seconds)
+                    await page.waitForTimeout(8000);
+
+                    // Check if still on challenge page
+                    const stillChallenged = await page.title().then(t => t.includes('Just a moment'));
+                    if (stillChallenged) {
+                        console.log('    ⚠️ Cloudflare challenge still active. Waiting longer...');
+                        await page.waitForTimeout(7000);
+                    }
+                }
+
+                // HUMAN BEHAVIOR: Random mouse movement and scroll
+                await randomDelay(800, 1500);
+                await mouseJiggle(page);
+                await smoothScroll(page, 200);
+                await randomDelay(500, 1000);
+
                 // 1. Check for "Jobs you may be interested in" (Indicates no exact matches)
-                // HTML: <span class="font-semibold text-brand-500">Jobs you may be interested in</span>
                 const selector = 'span.font-semibold.text-brand-500';
                 const hasSuggestion = await page
                     .waitForSelector(`${selector}:has-text("Jobs you may be interested in")`, { timeout: 3000 })
@@ -53,8 +74,8 @@ async function scrapeTopDev(page, reporter) {
 
                 if (hasSuggestion) continue;
 
-                // Reduced wait time from 3s to 2s
-                await page.waitForTimeout(2000);
+                // Wait for content to load with human-like delay
+                await randomDelay(1500, 2500);
 
                 // Select all job cards using specific User Provided Selector
                 // KEY DIFFERENCE: List items have 'cursor-pointer', Detail header usually does not.
@@ -99,12 +120,15 @@ async function scrapeTopDev(page, reporter) {
                         // URL Construction
                         const url = link.startsWith('http') ? link : `https://topdev.vn${link}`;
 
-                        // Click to Load Details
+                        // HUMAN BEHAVIOR: Scroll into view naturally
                         await card.scrollIntoViewIfNeeded();
+                        await randomDelay(300, 600);
+
+                        // Click with human-like delay
                         await card.click({ force: true });
+                        await randomDelay(800, 1200);
 
                         // Wait for Detail Panel
-                        // User HTML: <div class="h-[54vh] overflow-auto xl:h-[66vh]">
                         const detailContainer = page.locator('div.h-\\[54vh\\].overflow-auto, div.xl\\:h-\\[66vh\\]').first();
                         await detailContainer.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
 

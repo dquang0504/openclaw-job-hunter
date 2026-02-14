@@ -61,35 +61,55 @@ async function scrapeITViec(page, reporter) {
                     // Click 'Level' dropdown
                     // Selector: div#dropdown-job-level
                     const levelDropdown = page.locator('#dropdown-job-level');
-                    // Wait for it to be ready
-                    if (await levelDropdown.isVisible()) {
+
+                    // CRITICAL FIX: Wait up to 10 seconds for dropdown to be visible
+                    const isDropdownVisible = await levelDropdown.isVisible({ timeout: 10000 }).catch(() => false);
+
+                    if (isDropdownVisible) {
                         await levelDropdown.click();
 
                         // Wait for dropdown animation
-                        await page.waitForTimeout(1000);
+                        await page.waitForTimeout(1500);
 
                         // Select 'Fresher'
-                        // ISSUE: Previously matched 2 elements.
-                        // Target: input[value="Fresher"][data-action*="submitFormInline"] 
-                        // Or simply use .first() if we see the dropdown is open.
+                        // CRITICAL FIX: Wait for checkbox to be visible and interactable
                         const fresherCheckbox = page.locator('input[value="Fresher"][name="job_level_names[]"][data-action*="submitFormInline"]');
 
-                        if (await fresherCheckbox.count() > 0) {
-                            // Force click because sometimes label overlay intercepts or opacity issues
-                            // Add timeout to fail fast if not interactable
-                            await fresherCheckbox.first().click({ force: true, timeout: 5000 });
-                            console.log('    🔽 Filtered by Level: Fresher');
+                        // Wait for checkbox to appear (up to 10 seconds)
+                        const isCheckboxVisible = await fresherCheckbox.first().isVisible({ timeout: 10000 }).catch(() => false);
+
+                        if (isCheckboxVisible) {
+                            // Scroll checkbox into view first
+                            await fresherCheckbox.first().scrollIntoViewIfNeeded();
+                            await page.waitForTimeout(500);
+
+                            // Try to click with force, with timeout
+                            try {
+                                await fresherCheckbox.first().click({ force: true, timeout: 5000 });
+                                console.log('    🔽 Filtered by Level: Fresher');
+                            } catch (clickError) {
+                                console.warn(`    ⚠️ Click failed: ${clickError.message}. Trying alternative method...`);
+                                // Alternative: Click via JavaScript
+                                await page.evaluate(() => {
+                                    const checkbox = document.querySelector('input[value="Fresher"][name="job_level_names[]"]');
+                                    if (checkbox) checkbox.click();
+                                });
+                                console.log('    🔽 Filtered by Level: Fresher (via JS)');
+                            }
 
                             // Wait for results to update.
                             await page.waitForTimeout(3000);
                         } else {
-                            console.warn('    ⚠️ Fresher filter option not found (Selector mismatch)');
+                            console.warn('    ⚠️ Fresher checkbox not visible after 10s (headless mode?)');
+                            console.warn('    ℹ️  Continuing without filter - will scrape all levels');
                         }
                     } else {
-                        console.warn('    ⚠️ Level dropdown not found');
+                        console.warn('    ⚠️ Level dropdown not found after 10s (headless mode?)');
+                        console.warn('    ℹ️  Continuing without filter - will scrape all levels');
                     }
                 } catch (e) {
                     console.warn(`    ⚠️ Failed to apply UI filter: ${e.message}`);
+                    console.warn('    ℹ️  Continuing without filter - will scrape all levels');
                 }
 
                 // 1. Check for Empty State

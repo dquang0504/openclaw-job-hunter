@@ -61,8 +61,12 @@ async function main() {
 
     const reporter = new TelegramReporter();
 
+    // Use headless: false for topdev, topcv, itviec (they need UI for filters)
+    // Use headless: true for other platforms
+    const needsHeadful = shouldRun('topdev') || shouldRun('topcv') || shouldRun('itviec');
+
     const browser = await chromium.launch({
-        headless: true,
+        headless: !needsHeadful,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

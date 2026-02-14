@@ -41,6 +41,9 @@ async function runTest() {
 
     const page = await context.newPage();
 
+    // Bring window to front so you can see it
+    await page.bringToFront();
+
     try {
         const jobs = await scrapeTopCV(page, reporter);
 
