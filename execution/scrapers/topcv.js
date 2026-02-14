@@ -55,9 +55,23 @@ async function scrapeTopCV(page, reporter) {
                     continue;
                 }
 
+                // DEBUG: Check page title and URL to verify we're on the right page
+                const pageTitle = await page.title();
+                const currentUrl = page.url();
+                console.log(`    🔍 DEBUG: Page title: ${pageTitle}`);
+                console.log(`    🔍 DEBUG: Current URL: ${currentUrl}`);
+
                 // Strict selector: Only pick up direct search results, NOT suggested jobs
                 const jobCards = await page.locator('.job-item-search-result').all();
                 console.log(`    📦 Found ${jobCards.length} job cards`);
+
+                // DEBUG: If no cards found, try alternative selectors
+                if (jobCards.length === 0) {
+                    const altCards1 = await page.locator('.job-item').all();
+                    const altCards2 = await page.locator('[class*="job-item"]').all();
+                    console.log(`    🔍 DEBUG: Alternative selector '.job-item': ${altCards1.length} cards`);
+                    console.log(`    🔍 DEBUG: Alternative selector '[class*="job-item"]': ${altCards2.length} cards`);
+                }
 
                 // Process only top 20 for speed
                 for (const card of jobCards.slice(0, 20)) {
