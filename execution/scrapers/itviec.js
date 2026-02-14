@@ -65,6 +65,9 @@ async function scrapeITViec(page, reporter) {
                     if (await levelDropdown.isVisible()) {
                         await levelDropdown.click();
 
+                        // Wait for dropdown animation
+                        await page.waitForTimeout(1000);
+
                         // Select 'Fresher'
                         // ISSUE: Previously matched 2 elements.
                         // Target: input[value="Fresher"][data-action*="submitFormInline"] 
@@ -74,7 +77,7 @@ async function scrapeITViec(page, reporter) {
                         if (await fresherCheckbox.count() > 0) {
                             // Force click because sometimes label overlay intercepts or opacity issues
                             // Add timeout to fail fast if not interactable
-                            await fresherCheckbox.first().click({ force: true, timeout: 3000 });
+                            await fresherCheckbox.first().click({ force: true, timeout: 5000 });
                             console.log('    🔽 Filtered by Level: Fresher');
 
                             // Wait for results to update.
