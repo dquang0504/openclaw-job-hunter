@@ -39,6 +39,28 @@ async function scrapeTopCV(page, reporter) {
                 // Reduced timeout and no random delay
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
 
+                // ANTI-BOT: Check for Cloudflare challenge (same as TopDev)
+                const pageTitle = await page.title();
+                if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
+                    console.log('    🛡️ Cloudflare challenge detected. Waiting...');
+                    // Wait for challenge to complete (usually 5-10 seconds)
+                    await page.waitForTimeout(8000);
+
+                    // Check if still on challenge page
+                    const stillChallenged = await page.title().then(t => t.includes('Attention Required') || t.includes('Cloudflare'));
+                    if (stillChallenged) {
+                        console.log('    ⚠️ Cloudflare challenge still active. Waiting longer...');
+                        await page.waitForTimeout(7000);
+
+                        // Final check
+                        const finalCheck = await page.title().then(t => t.includes('Attention Required') || t.includes('Cloudflare'));
+                        if (finalCheck) {
+                            console.log('    ❌ Cloudflare challenge failed. Skipping...');
+                            continue;
+                        }
+                    }
+                }
+
                 // Check for CAPTCHA
                 if (await page.locator('.captcha, .recaptcha, [data-captcha]').count() > 0) {
                     console.log('⚠️ CAPTCHA detected...');
@@ -56,9 +78,8 @@ async function scrapeTopCV(page, reporter) {
                 }
 
                 // DEBUG: Check page title and URL to verify we're on the right page
-                const pageTitle = await page.title();
                 const currentUrl = page.url();
-                console.log(`    🔍 DEBUG: Page title: ${pageTitle}`);
+                console.log(`    🔍 DEBUG: Page title: ${await page.title()}`);
                 console.log(`    🔍 DEBUG: Current URL: ${currentUrl}`);
 
                 // Strict selector: Only pick up direct search results, NOT suggested jobs
