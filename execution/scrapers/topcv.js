@@ -6,6 +6,7 @@ const path = require('path');
 const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
+const { randomDelay, mouseJiggle, smoothScroll, humanScroll, applyStealthSettings } = require('../lib/stealth');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -24,6 +25,9 @@ async function scrapeTopCV(page, reporter) {
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     let isBlocked = false;
 
+    // STEALTH: Apply browser spoofing
+    await applyStealthSettings(page);
+
     console.log(`  🔍 Searching with ${CONFIG.keywords.length} keywords...`);
 
     const experienceLevels = [1, 2, 3]; // 1: No Exp, 2: <1 Year, 3: 1 Year
@@ -41,8 +45,17 @@ async function scrapeTopCV(page, reporter) {
                 const searchUrl = `https://www.topcv.vn/tim-viec-lam-${slug}-tai-ho-chi-minh-kl2?exp=${exp}&sort=new&type_keyword=1&sba=1&locations=l2_l20&saturday_status=0`;
                 console.log(`  🔍 Searching: ${keyword} (Exp: ${exp}) - Cần Thơ & HCM`);
 
-                // Reduced timeout and no random delay
-                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+                // STEALTH: Navigate with realistic behavior features
+                try {
+                    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                } catch (e) {
+                    if (e.message.includes('Timeout')) {
+                        console.log(`    ⚠️ domcontentloaded timeout, trying networkidle...`);
+                        await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+                    } else {
+                        throw e;
+                    }
+                }
 
                 // ANTI-BOT: Check for Cloudflare challenge (same as TopDev)
                 const pageTitle = await page.title();
@@ -59,9 +72,19 @@ async function scrapeTopCV(page, reporter) {
                     continue;
                 }
 
-                // Fast scroll to trigger lazy load
+                // HUMAN BEHAVIOR: Random mouse movement and scroll
+                await randomDelay(800, 1500);
+                await mouseJiggle(page);
+                await smoothScroll(page, 200);
+                await randomDelay(500, 1000);
+
+                // Fast scroll to trigger lazy load (Human-like)
+                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+                await randomDelay(500, 1000);
                 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                // Removed explicit wait as requested
+
+                // Wait for content to stabilize
+                await randomDelay(1000, 2000);
 
                 // Check if "No suitable job" message is visible (User confirmed logic)
                 if (await page.locator('.none-suitable-job').isVisible()) {
@@ -90,6 +113,12 @@ async function scrapeTopCV(page, reporter) {
                 for (const card of jobCards.slice(0, 20)) {
                     try {
                         const titleEl = card.locator('h3.title a, .title-block a, a.title').first();
+
+                        // HUMAN BEHAVIOR: Occasional small delay or move during processing (not every card to save time)
+                        if (Math.random() > 0.8) {
+                            await mouseJiggle(page);
+                        }
+
                         // Fail fast (100ms) if element not found to avoid blocking
                         const title = await titleEl.textContent({ timeout: 100 }).catch(() => null);
                         const urlVal = await titleEl.getAttribute('href', { timeout: 100 }).catch(() => null);
