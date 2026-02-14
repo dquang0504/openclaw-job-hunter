@@ -4,6 +4,7 @@
 
 const CONFIG = require('../config');
 const { calculateMatchScore } = require('../lib/filters');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Scrape jobs from ITViec
@@ -12,6 +13,9 @@ const { calculateMatchScore } = require('../lib/filters');
  */
 async function scrapeITViec(page, reporter) {
     console.log('📋 Searching ITViec...');
+
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
+    let isBlocked = false;
 
     const jobs = [];
     // User requested keyword 'golang' in the URL examples, but we should respect CONFIG if possible.
@@ -37,11 +41,13 @@ async function scrapeITViec(page, reporter) {
     // const jobLevelParam = 'job_levels%5B%5D=fresher'; // This is removed as per instruction
 
     for (const keyword of keywords) {
+        if (isBlocked) break;
         // ITViec uses hyphens for keywords in URL usually (e.g. business-analyst)
         // For 'golang', it's just 'golang'.
         const keywordSlug = keyword.trim().toLowerCase().replace(/\s+/g, '-');
 
         for (const location of locations) {
+            if (isBlocked) break;
             try {
                 // Construct URL
                 // Format: https://itviec.com/it-jobs/{keyword}/{location}?{params}
@@ -55,6 +61,15 @@ async function scrapeITViec(page, reporter) {
                 console.log(`  🔍 Searching: ${keyword} - ${location.name} (Applying UI Filter)`);
 
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                // ANTI-BOT: Check for Cloudflare challenge
+                const pageTitle = await page.title().catch(() => '');
+                if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
+                    console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire ITViec scraper...');
+                    await screenshotDebugger.captureAndSend(page, 'itviec-cloudflare-blocked', '🚨 ITViec: Blocked by Cloudflare - Scraper terminally skipped');
+                    isBlocked = true;
+                    break;
+                }
 
                 // UI FILTER INTERACTION
                 try {
@@ -76,7 +91,7 @@ async function scrapeITViec(page, reporter) {
                         const fresherCheckbox = page.locator('input[value="Fresher"][name="job_level_names[]"][data-action*="submitFormInline"]');
 
                         // Wait for checkbox to appear (up to 10 seconds)
-                        const isCheckboxVisible = await fresherCheckbox.first().isVisible({ timeout: 10000 }).catch(() => false);
+                        const isCheckboxVisible = await fresherCheckbox.first().isVisible({ timeout: 20000 }).catch(() => false);
 
                         if (isCheckboxVisible) {
                             // Scroll checkbox into view first
@@ -100,11 +115,11 @@ async function scrapeITViec(page, reporter) {
                             // Wait for results to update.
                             await page.waitForTimeout(3000);
                         } else {
-                            console.warn('    ⚠️ Fresher checkbox not visible after 10s (headless mode?)');
+                            console.warn('    ⚠️ Fresher checkbox not visible after 20s (headless mode?)');
                             console.warn('    ℹ️  Continuing without filter - will scrape all levels');
                         }
                     } else {
-                        console.warn('    ⚠️ Level dropdown not found after 10s (headless mode?)');
+                        console.warn('    ⚠️ Level dropdown not found after 20s (headless mode?)');
                         console.warn('    ℹ️  Continuing without filter - will scrape all levels');
                     }
                 } catch (e) {

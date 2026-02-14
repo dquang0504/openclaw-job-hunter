@@ -22,13 +22,16 @@ async function scrapeTopCV(page, reporter) {
 
     const jobs = [];
     const screenshotDebugger = new ScreenshotDebugger(reporter);
+    let isBlocked = false;
 
     console.log(`  🔍 Searching with ${CONFIG.keywords.length} keywords...`);
 
     const experienceLevels = [1, 2, 3]; // 1: No Exp, 2: <1 Year, 3: 1 Year
 
     for (const keyword of CONFIG.keywords) {
+        if (isBlocked) break;
         for (const exp of experienceLevels) {
+            if (isBlocked) break;
             try {
                 // Slugify keyword: "golang" -> "golang"
                 const slug = keyword.toLowerCase().split(/\s+/).join('-');
@@ -44,29 +47,10 @@ async function scrapeTopCV(page, reporter) {
                 // ANTI-BOT: Check for Cloudflare challenge (same as TopDev)
                 const pageTitle = await page.title();
                 if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
-                    console.log('    🛡️ Cloudflare challenge detected. Waiting...');
-
-                    // Capture screenshot of Cloudflare page
-                    await screenshotDebugger.captureCloudflare(page, 'TopCV');
-
-                    // Wait for challenge to complete (usually 5-10 seconds)
-                    await page.waitForTimeout(8000);
-
-                    // Check if still on challenge page
-                    const stillChallenged = await page.title().then(t => t.includes('Attention Required') || t.includes('Cloudflare'));
-                    if (stillChallenged) {
-                        console.log('    ⚠️ Cloudflare challenge still active. Waiting longer...');
-                        await page.waitForTimeout(7000);
-
-                        // Final check
-                        const finalCheck = await page.title().then(t => t.includes('Attention Required') || t.includes('Cloudflare'));
-                        if (finalCheck) {
-                            console.log('    ❌ Cloudflare challenge failed. Skipping...');
-                            // Capture final screenshot before skipping
-                            await screenshotDebugger.captureAndSend(page, 'topcv-cloudflare-failed', '❌ TopCV: Cloudflare challenge failed after 15s');
-                            continue;
-                        }
-                    }
+                    console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire TopCV scraper...');
+                    await screenshotDebugger.captureAndSend(page, 'topcv-cloudflare-blocked', '🚨 TopCV: Blocked by Cloudflare - Scraper terminally skipped');
+                    isBlocked = true;
+                    break;
                 }
 
                 // Check for CAPTCHA

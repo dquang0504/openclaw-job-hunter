@@ -18,6 +18,7 @@ async function scrapeTopDev(page, reporter) {
 
     const jobs = [];
     const screenshotDebugger = new ScreenshotDebugger(reporter);
+    let isBlocked = false;
     const keywords = CONFIG.keywords || ['golang'];
 
     // TopDev Levels: 1616 (Intern), 1617 (Fresher)
@@ -28,7 +29,9 @@ async function scrapeTopDev(page, reporter) {
     ];
 
     for (const keyword of keywords) {
+        if (isBlocked) break;
         for (const level of levels) {
+            if (isBlocked) break;
             try {
                 // Updated URL construction based on user input
                 const searchUrl = `https://topdev.vn/jobs/search?keyword=${encodeURIComponent(keyword)}&page=1&region_ids=79%2C92&job_levels_ids=${level.id}`;
@@ -54,15 +57,10 @@ async function scrapeTopDev(page, reporter) {
 
                 // ANTI-BOT: Check for Cloudflare challenge
                 if (pageTitle.includes('Just a moment') || pageTitle.includes('Checking your browser')) {
-                    console.log('    🛡️ Cloudflare challenge detected. Waiting...');
-                    await screenshotDebugger.captureCloudflare(page, 'TopDev');
-                    await page.waitForTimeout(8000);
-
-                    const stillChallenged = await page.title().then(t => t.includes('Just a moment'));
-                    if (stillChallenged) {
-                        console.log('    ⚠️ Cloudflare challenge still active. Waiting longer...');
-                        await page.waitForTimeout(7000);
-                    }
+                    console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire TopDev scraper...');
+                    await screenshotDebugger.captureAndSend(page, 'topdev-cloudflare-blocked', '🚨 TopDev: Blocked by Cloudflare - Scraper terminally skipped');
+                    isBlocked = true;
+                    break;
                 }
 
                 // CHECK: Promo popup redirect (hiring-reward-thang-1-2026)
