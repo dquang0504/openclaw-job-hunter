@@ -62,11 +62,13 @@ async function main() {
     const reporter = new TelegramReporter();
 
     // Use headless: false for topdev, topcv, itviec (they need UI for filters)
-    // Use headless: true for other platforms
+    // BUT: GitHub Actions doesn't have display server, so force headless: true in CI
+    const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
     const needsHeadful = shouldRun('topdev') || shouldRun('topcv') || shouldRun('itviec');
+    const headlessMode = isCI ? true : !needsHeadful;
 
     const browser = await chromium.launch({
-        headless: !needsHeadful,
+        headless: headlessMode,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
