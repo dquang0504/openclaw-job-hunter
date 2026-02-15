@@ -63,12 +63,50 @@ async function scrapeITViec(page, reporter) {
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
                 // ANTI-BOT: Check for Cloudflare challenge
+                // Try to solve Turnstile automatically
                 const pageTitle = await page.title().catch(() => '');
-                if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare')) {
-                    console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire ITViec scraper...');
-                    await screenshotDebugger.captureAndSend(page, 'itviec-cloudflare-blocked', '🚨 ITViec: Blocked by Cloudflare - Scraper terminally skipped');
-                    isBlocked = true;
-                    break;
+                if (pageTitle.includes('Attention Required') || pageTitle.includes('Just a moment') || pageTitle.includes('Cloudflare') || pageTitle.includes('bảo mật')) {
+                    console.log('    🛡️ Cloudflare challenge detected on ITViec...');
+
+                    try {
+                        // Wait briefly for potential automated check
+                        await page.waitForTimeout(3000);
+
+                        // Attempt to locate Turnstile Widget
+                        // Often inside an iframe with title "Widget containing a cloudflare security challenge"
+                        // or just try to click the box if visible in main layout
+                        const turnstileFrame = page.frames().find(f => f.url().includes('cloudflare') || f.name().includes('turnstile'));
+
+                        if (turnstileFrame) {
+                            console.log('    🤖 Found Cloudflare/Turnstile Frame, checking for checkbox...');
+                            const checkbox = await turnstileFrame.locator('input[type="checkbox"], .ctp-checkbox-label, #challenge-stage').first();
+                            if (await checkbox.isVisible()) {
+                                await mouseJiggle(page); // Move mouse naturally towards it
+                                await checkbox.click({ delay: Math.floor(Math.random() * 200) + 50 });
+                                console.log('    🖱️ Clicked Turnstile checkbox!');
+                                await page.waitForTimeout(5000); // Wait for reload
+                            }
+                        } else {
+                            // Try clicking coordinate (center of screen often works for simple challenges)
+                            // or looking for shadow root
+                            console.log('    ⚠️ No specific iframe found, waiting...');
+                        }
+
+                        // Final Check
+                        const finalTitle = await page.title();
+                        if (finalTitle.includes('Attention Required') || finalTitle.includes('bảo mật') || finalTitle.includes('Cloudflare')) {
+                            console.warn('    🚫 Cloudflare challenge persist after attempt. Skipping...');
+                            await screenshotDebugger.captureAndSend(page, 'itviec-cloudflare-blocked', '🚨 ITViec: Blocked by Cloudflare (Challenge Failed)');
+                            isBlocked = true;
+                            break;
+                        } else {
+                            console.log('    ✅ Cloudflare challenge passed!');
+                        }
+
+                    } catch (e) {
+                        console.warn(`    ⚠️ Error attempting Cloudflare solve: ${e.message}`);
+                        // Don't break immediately, let the natural flow fail or succeed
+                    }
                 }
 
                 // UI FILTER INTERACTION

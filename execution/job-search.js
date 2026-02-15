@@ -67,6 +67,8 @@ async function main() {
 
     const browser = await chromium.launch({
         headless: !needsHeadful,
+        timeout: 60000,
+        ignoreDefaultArgs: ['--enable-automation'],
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -74,13 +76,16 @@ async function main() {
             '--disable-infobars',
             '--window-size=1280,800',
             '--disable-accelerated-2d-canvas',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--no-first-run',
+            '--no-service-autorun',
+            '--password-store=basic'
         ]
     });
 
     // Regular context for TopCV and Twitter
     // Fixed User Agent from successful test to bypass Indeed checks
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
     const context = await browser.newContext({
         userAgent: userAgent,
@@ -88,7 +93,15 @@ async function main() {
         locale: 'vi-VN',
         timezoneId: 'Asia/Ho_Chi_Minh',
         permissions: ['geolocation'],
-        geolocation: { latitude: 10.7769, longitude: 106.7009 } // HCM
+        geolocation: { latitude: 10.7769, longitude: 106.7009 }, // HCM
+        javaScriptEnabled: true,
+        extraHTTPHeaders: {
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"'
+        }
     });
 
     // Load cookies
