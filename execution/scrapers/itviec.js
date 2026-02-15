@@ -51,13 +51,15 @@ async function scrapeITViec(page, reporter) {
             try {
                 // Construct URL
                 // Format: https://itviec.com/it-jobs/{keyword}/{location}?{params}
-                // We use direct query parameters for reliability instead of UI interaction.
-                // job_levels[]=Fresher matches the checkbox value "Fresher"
-                const searchUrl = `https://itviec.com/it-jobs/${keywordSlug}/${location.slug}?job_levels%5B%5D=Fresher`;
+                const searchUrl = `https://itviec.com/it-jobs/${keywordSlug}/${location.slug}`;
 
-                console.log(`  🔍 Searching: ${keyword} - ${location.name} (Fresher)`); // Updated Log
+                console.log(`  🔍 Searching: ${keyword} - ${location.name} (Applying UI Filter)`);
 
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                // User requested 15s delay before interacting
+                console.log('    ⏳ Waiting 15s before applying filters...');
+                await page.waitForTimeout(15000);
 
                 // ANTI-BOT: Check for Cloudflare challenge
                 // Try to solve Turnstile automatically
@@ -106,8 +108,55 @@ async function scrapeITViec(page, reporter) {
                     }
                 }
 
-                // UI FILTER REMOVED - Using URL Parameters instead
-                await page.waitForTimeout(1000);
+                // UI FILTER INTERACTION
+                try {
+                    // Click 'Level' dropdown
+                    const levelDropdown = page.locator('#dropdown-job-level');
+                    if (await levelDropdown.isVisible({ timeout: 5000 })) {
+                        await levelDropdown.click();
+                        await page.waitForTimeout(1000);
+
+                        // Select 'Fresher'
+                        // Checkbox might be hidden by label, usually need to click the label or force click the input
+                        // The input is: <input class="checkbox-job-level" data-action="...submitFormInline" type="checkbox" value="Fresher" name="job_level_names[]" id="job_level_names_Fresher">
+                        // The label is: <label for="job_level_names_Fresher">Fresher</label>
+
+                        const fresherInput = page.locator('input[value="Fresher"][name="job_level_names[]"]');
+                        const fresherLabel = page.locator('label[for*="Fresher"], label:has-text("Fresher")');
+
+                        let clicked = false;
+
+                        if (await fresherInput.count() > 0) {
+                            // Try clicking input with force
+                            await fresherInput.first().click({ force: true }).then(() => clicked = true).catch(() => { });
+                        }
+
+                        if (!clicked && await fresherLabel.count() > 0) {
+                            // Try clicking label
+                            await fresherLabel.first().click({ force: true }).then(() => clicked = true).catch(() => { });
+                        }
+
+                        if (!clicked) {
+                            // JS force click
+                            clicked = await page.evaluate(() => {
+                                const el = document.querySelector('input[value="Fresher"][name="job_level_names[]"]');
+                                if (el) { el.click(); return true; }
+                                return false;
+                            });
+                        }
+
+                        if (clicked) {
+                            console.log('    🔽 UI Filter Applied: Fresher');
+                            await page.waitForTimeout(3000); // Wait for AJAX reload
+                        } else {
+                            console.warn('    ⚠️ Failed to click Fresher filter (Element not found/interactable)');
+                        }
+                    } else {
+                        console.log('    ℹ️ Level dropdown not found (Mobile view or Layout change), skipping filter.');
+                    }
+                } catch (e) {
+                    console.warn(`    ⚠️ UI Filter Error: ${e.message}`);
+                }
 
                 // 1. Check for Empty State
                 // Selector: div.search-noinfo[data-jobs--filter-target="searchNoInfo"]
