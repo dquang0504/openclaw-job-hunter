@@ -3,7 +3,7 @@
  */
 
 const CONFIG = require('../config');
-const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings } = require('../lib/stealth');
+const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings, idleBehavior } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
@@ -25,13 +25,68 @@ async function scrapeFacebook(page, reporter) {
 
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
+
+    // --- WARM UP PHASE ---
+    try {
+        console.log('🏠 Navigating to Facebook Home for warm-up...');
+        await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
+
+        const warmUpDuration = 10000 + Math.random() * 5000; // 10-15s
+        const startTime = Date.now();
+        console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
+
+        while (Date.now() - startTime < warmUpDuration) {
+            const action = Math.floor(Math.random() * 5);
+            // 0: scroll down large, 1: scroll down small, 2: scroll up, 3: move mouse, 4: pause
+
+            switch (action) {
+                case 0: // Scroll down large
+                    await page.mouse.wheel(0, 300 + Math.random() * 500);
+                    break;
+                case 1: // Scroll down small
+                    await page.mouse.wheel(0, 50 + Math.random() * 100);
+                    break;
+                case 2: // Scroll up (less frequent check)
+                    if (Math.random() > 0.5) await page.mouse.wheel(0, -100 - Math.random() * 200);
+                    break;
+                case 3: // erratic mouse move and potential safe click
+                    const x = Math.random() * 1280;
+                    const y = Math.random() * 800;
+                    await page.mouse.move(x, y, { steps: 5 + Math.floor(Math.random() * 20) });
+                    if (Math.random() > 0.8) {
+                        // Click on "safe" empty areas usually (checking coordinate context is hard, just click)
+                        // To be safe, maybe just hover, or click body.
+                        // Playwright click might trigger things. Let's just stick to move or click(0,0).
+                        // Or click current position if it's likely safe.
+                        // User asked for "click random một vài chỗ".
+                        await page.mouse.click(x, y).catch(() => { });
+                    }
+                    break;
+                case 4: // Pause
+                    await page.waitForTimeout(500 + Math.random() * 1500);
+                    break;
+            }
+            await page.waitForTimeout(300 + Math.random() * 800);
+        }
+        console.log('✅ Warm-up complete. Starting scraping...');
+    } catch (e) {
+        console.log('⚠️ Warm-up failed (non-critical):', e.message);
+    }
+    // --- END WARM UP ---
+
     const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
     for (const groupUrl of CONFIG.facebookGroups) {
         try {
-            // Allow single keyword 'golang' as per config
+            // Configurable keyword
             const keyword = 'golang';
-            const cleanGroupUrl = groupUrl.replace(/\/$/, '').replace('m.facebook.com', 'www.facebook.com');
+
+            // Revert to www.facebook.com (Desktop) as per debug-browser success
+            const cleanGroupUrl = groupUrl.replace(/\/$/, '')
+                .replace('mbasic.facebook.com', 'www.facebook.com')
+                .replace('m.facebook.com', 'www.facebook.com');
+
+            // Desktop Search URL
             const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(keyword)}&filters=${RECENT_POSTS_FILTER}`;
 
             console.log(`  👥 Visiting Group: ${cleanGroupUrl}`);
@@ -39,6 +94,8 @@ async function scrapeFacebook(page, reporter) {
             // 1. Go to Group Home first (more natural)
             try {
                 await page.goto(cleanGroupUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                console.log('    ⏳ Browsing group home (Idle Behavior)...');
+                await idleBehavior(page);
             } catch (e) {
                 console.log(`  ⚠️ Timeout visiting group home, trying search direct...`);
             }
@@ -68,6 +125,9 @@ async function scrapeFacebook(page, reporter) {
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.setExtraHTTPHeaders({});
 
+            console.log('    ⏳ Analyzing search results (Idle Behavior)...');
+            await idleBehavior(page);
+
             // 3. Confirm Humanity
             await mouseJiggle(page);
             await randomDelay(3000, 5000);
@@ -84,6 +144,7 @@ async function scrapeFacebook(page, reporter) {
             await humanScroll(page, 3);
             await randomDelay(2000, 4000);
 
+            // Desktop Selectors
             let postSelector = 'div[role="feed"] > div, div[role="article"]';
             try {
                 await page.waitForSelector('div[role="feed"], div[role="article"]', { timeout: 10000 });
@@ -100,6 +161,11 @@ async function scrapeFacebook(page, reporter) {
             let validPostsCount = 0;
 
             for (let i = 0; i < maxAttempts && validPostsCount < maxValidPosts; i++) {
+                // Occasional idle behavior (every ~5 posts)
+                if (i > 0 && i % 5 === 0) {
+                    await idleBehavior(page);
+                }
+
                 // CRITICAL FIX: Re-locate element by index on every iteration.
                 const post = page.locator(postSelector).nth(i);
 

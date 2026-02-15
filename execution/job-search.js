@@ -10,7 +10,10 @@
  */
 
 require('dotenv').config();
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-extra');
+const stealth = require('puppeteer-extra-plugin-stealth')();
+chromium.use(stealth);
+
 const fs = require('fs');
 const path = require('path');
 
@@ -69,7 +72,7 @@ async function main() {
     // NOTE: TopCV has been switched to headless: true for testing as requested
 
     const browser = await chromium.launch({
-        headless: !needsHeadful,
+        headless: false,
         timeout: 60000,
         ignoreDefaultArgs: ['--enable-automation'],
         args: [
@@ -87,25 +90,41 @@ async function main() {
     });
 
     // Regular context for TopCV and Twitter
-    // Fixed User Agent from successful test to bypass Indeed checks
+    // Using Desktop User Agent (matches debug-browser.js success)
     const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+    console.log(`🕵️ Using User-Agent: ${userAgent}`);
 
-    const context = await browser.newContext({
+    const contextOptions = {
         userAgent: userAgent,
         viewport: { width: 1280, height: 800 },
         locale: 'vi-VN',
         timezoneId: 'Asia/Ho_Chi_Minh',
-        permissions: ['geolocation'],
-        geolocation: { latitude: 10.7769, longitude: 106.7009 }, // HCM
+        // Minimal headers like debug-browser.js
+        // permissions: ['geolocation'],
+        // geolocation: { latitude: 10.7769, longitude: 106.7009 }, // HCM
         javaScriptEnabled: true,
+        /* 
         extraHTTPHeaders: {
             'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
             'Upgrade-Insecure-Requests': '1',
             'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
             'Sec-Ch-Ua-Mobile': '?0',
             'Sec-Ch-Ua-Platform': '"Windows"'
-        }
-    });
+        } 
+        */
+    };
+
+    // Proxy Configuration (Placeholder for future use)
+    if (process.env.PROXY_SERVER) {
+        contextOptions.proxy = {
+            server: process.env.PROXY_SERVER,
+            // username: process.env.PROXY_USERNAME,
+            // password: process.env.PROXY_PASSWORD
+        };
+        console.log(`🌐 Using Proxy: ${process.env.PROXY_SERVER}`);
+    }
+
+    const context = await browser.newContext(contextOptions);
 
     // Load cookies
     const cookieFiles = {

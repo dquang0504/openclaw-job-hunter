@@ -144,6 +144,40 @@ async function applyStealthSettings(page) {
     });
 }
 
+/**
+ * Simulate random idle behavior (hovering, small scrolls, pauses)
+ */
+async function idleBehavior(page) {
+    const actions = [
+        async () => {
+            // Hover random element
+            const elements = await page.locator('div, span, a, p').all();
+            if (elements.length > 0) {
+                const randomEl = elements[Math.floor(Math.random() * Math.min(elements.length, 20))];
+                try {
+                    await randomEl.hover({ timeout: 1000 }).catch(() => { });
+                } catch (e) { }
+            }
+        },
+        async () => {
+            // Small scroll up/down
+            await page.mouse.wheel(0, (Math.random() - 0.5) * 200);
+        },
+        async () => {
+            // Just wait
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 2000) + 500));
+        }
+    ];
+
+    // Pick 1-2 random actions
+    const count = Math.floor(Math.random() * 2) + 1;
+    for (let i = 0; i < count; i++) {
+        const action = actions[Math.floor(Math.random() * actions.length)];
+        await action();
+        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 200));
+    }
+}
+
 module.exports = {
     randomDelay,
     thinkingDelay,
@@ -153,5 +187,6 @@ module.exports = {
     humanType,
     getRandomUserAgent,
     applyStealthSettings,
+    idleBehavior,
     USER_AGENTS
 };
