@@ -4,7 +4,6 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings } = require('../lib/stealth');
-const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
