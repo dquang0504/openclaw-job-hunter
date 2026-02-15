@@ -63,7 +63,10 @@ async function main() {
 
     // Use headless: false for topdev, topcv, itviec (they need UI for filters)
     // xvfb-run in GitHub Actions provides virtual display
-    const needsHeadful = shouldRun('topdev') || shouldRun('topcv') || shouldRun('itviec');
+    // Use headless: false for topdev, topcv, itviec (they need UI for filters)
+    // xvfb-run in GitHub Actions provides virtual display
+    const needsHeadful = shouldRun('topdev') || shouldRun('itviec');
+    // NOTE: TopCV has been switched to headless: true for testing as requested
 
     const browser = await chromium.launch({
         headless: !needsHeadful,
