@@ -25,6 +25,7 @@ async function scrapeFacebook(page, reporter) {
 
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
+    const capturedErrors = new Set();
 
     // --- WARM UP PHASE ---
     try {
@@ -150,7 +151,10 @@ async function scrapeFacebook(page, reporter) {
                 await page.waitForSelector('div[role="feed"], div[role="article"]', { timeout: 10000 });
             } catch (e) {
                 console.log('  ⚠️ Post selector not found (might be no results or layout change)');
-                await screenshotDebugger.captureAndSend(page, 'facebook-no-posts-found', '⚠️ Facebook: Post selector not found (Layout change or No results)');
+                if (!capturedErrors.has('facebook-no-posts-found')) {
+                    await screenshotDebugger.captureAndSend(page, 'facebook-no-posts-found', '⚠️ Facebook: Post selector not found (Layout change or No results)');
+                    capturedErrors.add('facebook-no-posts-found');
+                }
             }
 
             const totalPostsFound = await page.locator(postSelector).count();
