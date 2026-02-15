@@ -28,6 +28,41 @@ async function scrapeTopCV(page, reporter) {
     // STEALTH: Apply browser spoofing
     await applyStealthSettings(page);
 
+    // ANTI-BOT: Warm-up Phase
+    try {
+        console.log('🏠 Navigating to TopCV Home for warm-up...');
+        await page.goto('https://www.topcv.vn/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Random check for blocked status immediately on home
+        const title = await page.title();
+        if (title.includes('Cloudflare') || title.includes('Attention Required')) {
+            throw new Error('Cloudflare blocked on Homepage');
+        }
+
+        const warmUpDuration = 5000 + Math.random() * 5000;
+        console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s...`);
+        const startTime = Date.now();
+        while (Date.now() - startTime < warmUpDuration) {
+            // Random scroll/mouse moves
+            if (Math.random() > 0.5) {
+                await mouseJiggle(page);
+            } else {
+                await page.mouse.wheel(0, 300);
+                await randomDelay(500, 1000);
+                await page.mouse.wheel(0, -200);
+            }
+            await randomDelay(1000, 2000);
+        }
+        console.log('✅ Warm-up complete.');
+    } catch (e) {
+        console.log('⚠️ Warm-up warning:', e.message);
+        if (e.message.includes('Cloudflare')) {
+            console.warn('    🛡️ Cloudflare challenge detected on Home! 🚫 Skipping...');
+            await screenshotDebugger.captureAndSend(page, 'topcv-cloudflare-home', '🚨 TopCV: Blocked by Cloudflare on Homepage');
+            return [];
+        }
+    }
+
     console.log(`  🔍 Searching with ${CONFIG.keywords.length} keywords...`);
 
     const experienceLevels = [1, 2, 3]; // 1: No Exp, 2: <1 Year, 3: 1 Year
@@ -41,13 +76,20 @@ async function scrapeTopCV(page, reporter) {
                 const slug = keyword.toLowerCase().split(/\s+/).join('-');
 
                 // Specific URL for Can Tho (l20) AND Ho Chi Minh (l2)
-                // &locations=l2_l20 means both
                 const searchUrl = `https://www.topcv.vn/tim-viec-lam-${slug}-tai-ho-chi-minh-kl2?exp=${exp}&sort=new&type_keyword=1&sba=1&locations=l2_l20&saturday_status=0`;
                 console.log(`  🔍 Searching: ${keyword} (Exp: ${exp}) - Cần Thơ & HCM`);
 
-                // STEALTH: Navigate with realistic behavior features
+                // STEALTH: Add Referer and Navigate
                 try {
+                    await page.setExtraHTTPHeaders({
+                        'Referer': 'https://www.topcv.vn/'
+                    });
+
                     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                    // Clear headers for next request
+                    await page.setExtraHTTPHeaders({});
+
                 } catch (e) {
                     if (e.message.includes('Timeout')) {
                         console.log(`    ⚠️ domcontentloaded timeout, trying networkidle...`);
