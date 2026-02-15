@@ -4,7 +4,9 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings } = require('../lib/stealth');
+const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -22,6 +24,7 @@ async function scrapeFacebook(page, reporter) {
     // Ensure stealth settings are active
     await applyStealthSettings(page);
 
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
     const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
@@ -87,6 +90,7 @@ async function scrapeFacebook(page, reporter) {
                 await page.waitForSelector('div[role="feed"], div[role="article"]', { timeout: 10000 });
             } catch (e) {
                 console.log('  ⚠️ Post selector not found (might be no results or layout change)');
+                await screenshotDebugger.captureAndSend(page, 'facebook-no-posts-found', '⚠️ Facebook: Post selector not found (Layout change or No results)');
             }
 
             const totalPostsFound = await page.locator(postSelector).count();
