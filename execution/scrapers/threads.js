@@ -171,7 +171,7 @@ function extractPostsFromJSON(data) {
 async function scrapeKeyword(page, keyword, reporter) {
     const jobs = [];
     const seenPostIds = new Set();
-    const TARGET_POSTS_PER_KEYWORD = 150;
+    const TARGET_POSTS_PER_KEYWORD = 100;
 
     // Timespan: 2 months (60 days)
     // Dynamic Filter
@@ -233,38 +233,42 @@ async function scrapeKeyword(page, keyword, reporter) {
             }
 
             // 2. Fallback: Extract directly from DOM if JSON failed
-            const domPosts = await page.$$eval('div[role="article"]', (elements) => {
+            // Usage of data-pressable-container="true" based on latest HTML structure
+            const domPosts = await page.$$eval('div[data-pressable-container="true"]', (elements) => {
                 const results = [];
-                function findContainer(el) {
-                    let current = el;
-                    for (let i = 0; i < 6; i++) {
-                        if (!current) break;
-                        current = current.parentElement;
-                        if (current && (current.getAttribute('data-pressable-container') === 'true')) return current;
-                    }
-                    return null;
-                }
 
-                elements.forEach(el => {
-                    const text = el.innerText;
-                    if (!text || text.length < 10) return;
+                elements.forEach(container => {
+                    // Safety check to ensure we are looking at a post
+                    if (!container.innerText) return;
 
-                    const container = findContainer(el) || el;
+                    const text = container.innerText;
+                    if (!text || text.length < 5) return;
+
+                    // Extract Link and ID
                     const linkEl = container.querySelector('a[href*="/post/"]');
                     const url = linkEl ? linkEl.href : '';
+                    if (!url) return; // Must have a post link
 
+                    const id = url.split('/post/')[1].replace(/\/$/, '');
+
+                    // Extract Username
                     let username = 'unknown';
+                    // User link usually comes before post link or is separate. 
+                    // The HTML shows <a href="/@username">...</a>
                     const userEl = container.querySelector('a[href^="/@"]:not([href*="/post/"])');
-                    if (userEl) username = userEl.innerText.replace('@', '').trim();
+                    if (userEl) {
+                        username = userEl.getAttribute('href').replace('/@', '').replace('/', '');
+                    } else {
+                        // Fallback: try to match from URL
+                        // url is like https://www.threads.net/@username/post/ID
+                        const match = url.match(/@([^/]+)/);
+                        if (match) username = match[1];
+                    }
 
-                    if (!url && !username) return;
-                    const id = url ? url.split('/post/')[1] : text.substring(0, 30).replace(/\s/g, '');
-
-                    // Try to find datetime in DOM <time datetime="...">
+                    // Extract Timestamp
                     let timeVal = 0;
                     const timeEl = container.querySelector('time');
                     if (timeEl && timeEl.getAttribute('datetime')) {
-                        // ISO string
                         timeVal = new Date(timeEl.getAttribute('datetime')).getTime() / 1000;
                     }
 
@@ -303,8 +307,6 @@ async function scrapeKeyword(page, keyword, reporter) {
                 if (post.timestamp > 0) {
                     const postTimeMs = post.timestamp * 1000;
                     if (postTimeMs < CUTOFF_DATE) {
-                        // Log skipped old post for debug
-                        // console.log(`      [Skip-Date] Old connection: ${new Date(postTimeMs).toLocaleDateString()}`);
                         continue;
                     }
                 } else {
@@ -336,7 +338,7 @@ async function scrapeKeyword(page, keyword, reporter) {
             }
 
             if (newPostsCount > 0) {
-                console.log(`    ⬇️  Scrolled & verified ${newPostsCount} relevant posts (Total: ${loadedPostsForKeyword})`);
+                console.log(`    ⬇️  Filtered & verified ${newPostsCount} relevant posts (Total: ${loadedPostsForKeyword})`);
                 noChangeCount = 0;
             } else {
                 noChangeCount++;
@@ -401,6 +403,43 @@ async function scrapeThreadsParallel(context, reporter) {
 
 async function scrapeThreads(page, reporter, customKeywords = null) {
     console.log('🧵 Searching Threads (Serial)...');
+
+    // --- LOGIN CHECK / SESSION RESTORE ---
+    try {
+        console.log('  🔐 Checking authentication status...');
+        await page.goto('https://www.threads.net/', { waitUntil: 'domcontentloaded' });
+        await randomDelay(2000, 3000);
+
+        // Check for "Log in" or "Log in with Instagram" buttons
+        // Target specific Instagram login block based on user provided HTML structure
+        // Looking for "Tiếp tục bằng Instagram" or "Continue with Instagram" inside a role="button" or clickable div
+        const instaLoginBlock = page.locator('div[role="button"]').filter({ hasText: /Tiếp tục bằng Instagram|Continue with Instagram|Log in with Instagram/i }).first();
+
+        if (await instaLoginBlock.count() > 0) {
+            console.log('  👆 Found Instagram Login block, clicking...');
+            await instaLoginBlock.click();
+            await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+            await randomDelay(3000, 5000);
+        } else {
+            // Fallback to standard buttons
+            const loginButtons = await page.getByRole('button', { name: /Log in|Tiếp tục|Continue/i }).all();
+            for (const btn of loginButtons) {
+                const text = await btn.innerText();
+                if (text.includes('Instagram') || (text.includes('Tiếp tục') && text.includes('Instagram')) || (text.includes('Continue') && text.includes('Instagram'))) {
+                    console.log(`  👆 Clicking login button: "${text}"`);
+                    await btn.click();
+                    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+                    await randomDelay(3000, 5000);
+                    break;
+                }
+            }
+        }
+
+    } catch (e) {
+        console.log(`  ⚠️ Login check failed: ${e.message}`);
+    }
+    // --- END LOGIN CHECK ---
+
     const defaultKeywords = ['golang', 'fresher golang', 'junior golang', 'golang developer'];
     const keywords = customKeywords || defaultKeywords;
 
