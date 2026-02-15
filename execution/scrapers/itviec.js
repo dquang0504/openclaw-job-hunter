@@ -224,8 +224,8 @@ async function scrapeITViec(page, reporter) {
                                 // Reduced wait time for faster processing
                                 await page.waitForTimeout(300);
 
-                                // Capture Dynamic URL
-                                const fullLink = page.url();
+                                // Capture Dynamic URL (Clean query params for caching)
+                                const fullLink = page.url().split('?')[0];
 
                                 // Wait for Detail Panel (should be visible quickly)
                                 const detailPanel = page.locator('div.preview-job-content');
