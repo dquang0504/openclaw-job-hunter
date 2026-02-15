@@ -51,14 +51,11 @@ async function scrapeITViec(page, reporter) {
             try {
                 // Construct URL
                 // Format: https://itviec.com/it-jobs/{keyword}/{location}?{params}
-                // OR https://itviec.com/it-jobs/{keyword}?location={location}&params
-                // User gave: https://itviec.com/it-jobs/golang/ho-chi-minh-hcm
-                // Let's stick to the user's structure + query param for level.
-                // User requested removing URL params for levels and using UI interaction instead.
-                // Format: https://itviec.com/it-jobs/{keyword}/{location}
-                const searchUrl = `https://itviec.com/it-jobs/${keywordSlug}/${location.slug}`;
+                // We use direct query parameters for reliability instead of UI interaction.
+                // job_levels[]=Fresher matches the checkbox value "Fresher"
+                const searchUrl = `https://itviec.com/it-jobs/${keywordSlug}/${location.slug}?job_levels%5B%5D=Fresher`;
 
-                console.log(`  🔍 Searching: ${keyword} - ${location.name} (Applying UI Filter)`);
+                console.log(`  🔍 Searching: ${keyword} - ${location.name} (Fresher)`); // Updated Log
 
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
@@ -109,61 +106,8 @@ async function scrapeITViec(page, reporter) {
                     }
                 }
 
-                // UI FILTER INTERACTION
-                try {
-                    // Click 'Level' dropdown
-                    // Selector: div#dropdown-job-level
-                    const levelDropdown = page.locator('#dropdown-job-level');
-
-                    // CRITICAL FIX: Wait up to 10 seconds for dropdown to be visible
-                    const isDropdownVisible = await levelDropdown.isVisible({ timeout: 10000 }).catch(() => false);
-
-                    if (isDropdownVisible) {
-                        await levelDropdown.click();
-
-                        // Wait for dropdown animation
-                        await page.waitForTimeout(1500);
-
-                        // Select 'Fresher'
-                        // CRITICAL FIX: Wait for checkbox to be visible and interactable
-                        const fresherCheckbox = page.locator('input[value="Fresher"][name="job_level_names[]"][data-action*="submitFormInline"]');
-
-                        // Wait for checkbox to appear (up to 10 seconds)
-                        const isCheckboxVisible = await fresherCheckbox.first().isVisible({ timeout: 20000 }).catch(() => false);
-
-                        if (isCheckboxVisible) {
-                            // Scroll checkbox into view first
-                            await fresherCheckbox.first().scrollIntoViewIfNeeded();
-                            await page.waitForTimeout(500);
-
-                            // Try to click with force, with timeout
-                            try {
-                                await fresherCheckbox.first().click({ force: true, timeout: 5000 });
-                                console.log('    🔽 Filtered by Level: Fresher');
-                            } catch (clickError) {
-                                console.warn(`    ⚠️ Click failed: ${clickError.message}. Trying alternative method...`);
-                                // Alternative: Click via JavaScript
-                                await page.evaluate(() => {
-                                    const checkbox = document.querySelector('input[value="Fresher"][name="job_level_names[]"]');
-                                    if (checkbox) checkbox.click();
-                                });
-                                console.log('    🔽 Filtered by Level: Fresher (via JS)');
-                            }
-
-                            // Wait for results to update.
-                            await page.waitForTimeout(3000);
-                        } else {
-                            console.warn('    ⚠️ Fresher checkbox not visible after 20s (headless mode?)');
-                            console.warn('    ℹ️  Continuing without filter - will scrape all levels');
-                        }
-                    } else {
-                        console.warn('    ⚠️ Level dropdown not found after 20s (headless mode?)');
-                        console.warn('    ℹ️  Continuing without filter - will scrape all levels');
-                    }
-                } catch (e) {
-                    console.warn(`    ⚠️ Failed to apply UI filter: ${e.message}`);
-                    console.warn('    ℹ️  Continuing without filter - will scrape all levels');
-                }
+                // UI FILTER REMOVED - Using URL Parameters instead
+                await page.waitForTimeout(1000);
 
                 // 1. Check for Empty State
                 // Selector: div.search-noinfo[data-jobs--filter-target="searchNoInfo"]
