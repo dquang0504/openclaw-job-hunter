@@ -148,16 +148,49 @@ async function scrapeITViec(page, reporter) {
                         if (clicked) {
                             console.log('    🔽 UI Filter Applied: Fresher');
                             // Wait for network idle to ensure content reload
-                            await page.waitForLoadState('networkidle').catch(() => {}); 
+                            await page.waitForLoadState('networkidle').catch(() => { });
                             await page.waitForTimeout(2000); // Small buffer
+
+                            // VERIFY FILTER APPLIED
+                            try {
+                                // Selector provided: <span class="ilabel-warning position-absolute small-text text-it-white filter-number" data-jobs--filter-target="filterCounter">1</span>
+                                // We use the robust data attribute.
+                                const filterBadge = page.locator('[data-jobs--filter-target="filterCounter"]');
+
+                                // Wait for it to be visible
+                                await filterBadge.waitFor({ state: 'visible', timeout: 5000 });
+
+                                const countText = await filterBadge.textContent();
+                                const count = countText ? countText.trim() : '0';
+
+                                if (count === '1') {
+                                    console.log('    ✅ Filter verification success: 1 active filter confirmed.');
+                                } else {
+                                    throw new Error(`Filter verification failed. Expected '1' active filter, found '${count}'.`);
+                                }
+                            } catch (e) {
+                                console.error(`    ❌ Filter verification FAILED: ${e.message}`);
+                                await screenshotDebugger.captureAndSend(page, 'itviec-filter-failed', `🚨 ITViec: Filter failed for ${keyword} in ${location.name} (Badge != 1)`);
+                                // Skip processing this keyword/location to avoid scraping unfiltered jobs
+                                continue;
+                            }
+
                         } else {
                             console.warn('    ⚠️ Failed to click Fresher filter (Element not found/interactable)');
+                            // Also skip if we couldn't even click
+                            continue;
                         }
                     } else {
-                         console.log('    ℹ️ Level dropdown not found (Mobile view or Layout change), skipping filter.');
+                        console.log('    ℹ️ Level dropdown not found (Mobile view or Layout change), skipping filter.');
+                        // Decide: Skip or continue without filter? User implies strict filtering.
+                        // For safety, let's continue but warn. Or maybe skip?
+                        // Current behavior was to log and continue. 
+                        // Given the strict requirements, let's keep it as is but be aware.
                     }
                 } catch (e) {
                     console.warn(`    ⚠️ UI Filter Error: ${e.message}`);
+                    // If filter logic crashes, we probably shouldn't scrape unfiltered.
+                    continue;
                 }
 
                 // 1. Check for Empty State (Robust)
@@ -170,8 +203,8 @@ async function scrapeITViec(page, reporter) {
                     continue;
                 }
                 if (await noResultText.count() > 0 && await noResultText.isVisible()) {
-                     console.log(`    ⚠️ No jobs found - Text "${await noResultText.textContent()}" detected.`);
-                     continue;
+                    console.log(`    ⚠️ No jobs found - Text "${await noResultText.textContent()}" detected.`);
+                    continue;
                 }
 
                 // 2. Check Job Count Header
