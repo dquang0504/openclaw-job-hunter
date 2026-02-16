@@ -112,8 +112,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "🧹 Cleaning caches older than 4 weeks..."
-          CUTOFF_DATE=$(date -d '4 weeks ago' --iso-8601=seconds)
+          echo "🧹 Cleaning caches older than 8 weeks..."
+          CUTOFF_DATE=$(date -d '8 weeks ago' --iso-8601=seconds)
           gh cache list --limit 500 --json key,createdAt | \
             jq -r --arg cutoff "$CUTOFF_DATE" \
               '.[] | select(.createdAt < $cutoff) | .key' | \

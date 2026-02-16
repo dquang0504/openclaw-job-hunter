@@ -147,23 +147,31 @@ async function scrapeITViec(page, reporter) {
 
                         if (clicked) {
                             console.log('    🔽 UI Filter Applied: Fresher');
-                            await page.waitForTimeout(3000); // Wait for AJAX reload
+                            // Wait for network idle to ensure content reload
+                            await page.waitForLoadState('networkidle').catch(() => {}); 
+                            await page.waitForTimeout(2000); // Small buffer
                         } else {
                             console.warn('    ⚠️ Failed to click Fresher filter (Element not found/interactable)');
                         }
                     } else {
-                        console.log('    ℹ️ Level dropdown not found (Mobile view or Layout change), skipping filter.');
+                         console.log('    ℹ️ Level dropdown not found (Mobile view or Layout change), skipping filter.');
                     }
                 } catch (e) {
                     console.warn(`    ⚠️ UI Filter Error: ${e.message}`);
                 }
 
-                // 1. Check for Empty State
-                // Selector: div.search-noinfo[data-jobs--filter-target="searchNoInfo"]
-                const emptyState = page.locator('div[data-jobs--filter-target="searchNoInfo"]');
-                if (await emptyState.isVisible()) {
-                    console.log(`    ⚠️ No jobs found for "${keyword}" in ${location.name} (Empty State Check)`);
+                // 1. Check for Empty State (Robust)
+                // Selector provided by user: div[data-jobs--filter-target="searchNoInfo"] (has d-none class if results exist)
+                const emptyState = page.locator('div[data-jobs--filter-target="searchNoInfo"]:not(.d-none)');
+                const noResultText = page.locator('h2[data-jobs--filter-target="textNoResult"]');
+
+                if (await emptyState.count() > 0 && await emptyState.isVisible()) {
+                    console.log(`    ⚠️ No jobs found for "${keyword}" in ${location.name} (Empty State Detected)`);
                     continue;
+                }
+                if (await noResultText.count() > 0 && await noResultText.isVisible()) {
+                     console.log(`    ⚠️ No jobs found - Text "${await noResultText.textContent()}" detected.`);
+                     continue;
                 }
 
                 // 2. Check Job Count Header
