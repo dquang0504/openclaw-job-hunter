@@ -151,6 +151,9 @@ async function scrapeITViec(page, reporter) {
                             await page.waitForLoadState('networkidle').catch(() => { });
                             await page.waitForTimeout(2000); // Small buffer
 
+                            // Click outside (body) to ensure dropdowns close
+                            await page.locator('body').click({ force: true, position: { x: 1, y: 1 } }).catch(() => { });
+
                             // Attempt to close any potential modals covering the view
                             await page.keyboard.press('Escape').catch(() => { });
 
