@@ -25,11 +25,13 @@ function calculateMatchScore(job) {
     // Tech stack bonus (+1) -> Added 'backend'
     if (/\b(docker|kubernetes|aws|gcp|microservices|rest\s*api|grpc|backend|back-end)\b/i.test(text)) score += 1;
 
-    // PENALTY: Experience > 2 years (Heavy penalty to force score < 5)
-    // Matches: "3 years", "3 nam", "3+ years"
-    if (/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(text)) {
-        console.log(`    ⚠️ Penalty applied: High YoE detected`);
-        score -= 5;
+    // PENALTY: Experience >= 3 years (Zero score)
+    // Matches: "3 years", "3 nam", "3+ years", "4 năm", "5 nam"
+    // Also matches "Minimum 4 years", "Tối thiểu 4 năm"
+    const experienceRegex = /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yrs?|yoe)\b/i;
+    if (experienceRegex.test(text)) {
+        console.log(`    ⚠️ REJECTED: High YoE detected`);
+        score = 0; // Immediate rejection
     }
 
     return Math.min(score, 10);
@@ -48,7 +50,7 @@ function shouldIncludeJob(job) {
     if (CONFIG.excludeRegex.test(text)) return false;
 
     // Direct check for "3 years", "3 nam", "3+ years"
-    if (/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|years?|yoe)\b/i.test(text)) return false;
+    if (/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yrs?|yoe)\b/i.test(text)) return false;
 
     // Must be from valid years
     if (!isRecentJob(job.postedDate)) return false;

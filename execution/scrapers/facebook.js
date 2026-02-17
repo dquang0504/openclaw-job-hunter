@@ -4,7 +4,7 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings, idleBehavior } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
+const { calculateMatchScore, shouldIncludeJob } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -25,49 +25,21 @@ async function scrapeFacebook(page, reporter) {
 
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
-    const capturedErrors = new Set();
+    const context = page.context();
 
     // --- WARM UP PHASE ---
     try {
         console.log('🏠 Navigating to Facebook Home for warm-up...');
         await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
 
-        const warmUpDuration = 10000 + Math.random() * 5000; // 10-15s
+        // Randomize warm-up duration (10-20s)
+        const warmUpDuration = 10000 + Math.random() * 10000;
         const startTime = Date.now();
         console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
 
         while (Date.now() - startTime < warmUpDuration) {
-            const action = Math.floor(Math.random() * 5);
-            // 0: scroll down large, 1: scroll down small, 2: scroll up, 3: move mouse, 4: pause
-
-            switch (action) {
-                case 0: // Scroll down large
-                    await page.mouse.wheel(0, 300 + Math.random() * 500);
-                    break;
-                case 1: // Scroll down small
-                    await page.mouse.wheel(0, 50 + Math.random() * 100);
-                    break;
-                case 2: // Scroll up (less frequent check)
-                    if (Math.random() > 0.5) await page.mouse.wheel(0, -100 - Math.random() * 200);
-                    break;
-                case 3: // erratic mouse move and potential safe click
-                    const x = Math.random() * 1280;
-                    const y = Math.random() * 800;
-                    await page.mouse.move(x, y, { steps: 5 + Math.floor(Math.random() * 20) });
-                    if (Math.random() > 0.8) {
-                        // Click on "safe" empty areas usually (checking coordinate context is hard, just click)
-                        // To be safe, maybe just hover, or click body.
-                        // Playwright click might trigger things. Let's just stick to move or click(0,0).
-                        // Or click current position if it's likely safe.
-                        // User asked for "click random một vài chỗ".
-                        await page.mouse.click(x, y).catch(() => { });
-                    }
-                    break;
-                case 4: // Pause
-                    await page.waitForTimeout(500 + Math.random() * 1500);
-                    break;
-            }
-            await page.waitForTimeout(300 + Math.random() * 800);
+            await mouseJiggle(page);
+            await page.waitForTimeout(2000 + Math.random() * 2000);
         }
         console.log('✅ Warm-up complete. Starting scraping...');
     } catch (e) {
@@ -75,14 +47,12 @@ async function scrapeFacebook(page, reporter) {
     }
     // --- END WARM UP ---
 
+    // Filter for 2026: start_year:2026, end_year:2026
     const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
     for (const groupUrl of CONFIG.facebookGroups) {
         try {
-            // Configurable keyword
             const keyword = 'golang';
-
-            // Revert to www.facebook.com (Desktop) as per debug-browser success
             const cleanGroupUrl = groupUrl.replace(/\/$/, '')
                 .replace('mbasic.facebook.com', 'www.facebook.com')
                 .replace('m.facebook.com', 'www.facebook.com');
@@ -90,378 +60,142 @@ async function scrapeFacebook(page, reporter) {
             // Desktop Search URL
             const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(keyword)}&filters=${RECENT_POSTS_FILTER}`;
 
-            console.log(`  👥 Visiting Group: ${cleanGroupUrl}`);
+            console.log(`  👥 Visiting Group Search: ${cleanGroupUrl}`);
 
-            // 1. Go to Group Home first (more natural)
-            try {
-                await page.goto(cleanGroupUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-                console.log('    ⏳ Browsing group home (Idle Behavior)...');
-                await idleBehavior(page);
-            } catch (e) {
-                console.log(`  ⚠️ Timeout visiting group home, trying search direct...`);
-            }
-
-            // Check for Blocked/Login - Strict Check
-            const currentUrl = page.url();
-            if (currentUrl.includes('/checkpoint/') || currentUrl.includes('/blocked/')) {
-                console.log('  ⛔ Redirected to Checkpoint URL. Stopping.');
-                await reporter.sendError('Facebook Scraper: Account flagged/blocked (code 403).');
-                return [];
-            }
-            if (await page.getByRole('heading', { name: /Temporarily Blocked|Account Restricted/i }).isVisible()) {
-                console.log('  ⛔ "Temporarily Blocked" message visible. Stopping.');
-                await reporter.sendError('Facebook Scraper: Account flagged/blocked (UI Check).');
-                return [];
-            }
-
-            await randomDelay(2000, 4000);
-            await mouseJiggle(page);
-
-            // 2. Navigate to Search with Referer
-            console.log(`  🔍 Navigating to Search...`);
-            await page.setExtraHTTPHeaders({
-                'Referer': cleanGroupUrl
-            });
-
+            await page.setExtraHTTPHeaders({ 'Referer': cleanGroupUrl });
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.setExtraHTTPHeaders({});
 
-            console.log('    ⏳ Analyzing search results (Idle Behavior)...');
-            await idleBehavior(page);
-
-            // 3. Confirm Humanity
-            await mouseJiggle(page);
             await randomDelay(3000, 5000);
+            await mouseJiggle(page);
 
-            if (await page.locator('input[name="email"]').count() > 0) {
-                console.log('  🔒 Login wall detected. Cookies might be invalid.');
-                continue;
-            }
-            if (await page.getByText('No results found', { exact: false }).isVisible()) {
-                console.log('  ℹ️ No results found for query.');
+            // Check for Blocked/Login
+            if (page.url().includes('checkpoint') || await page.locator('input[name="email"]').count() > 0) {
+                console.log('  ⛔ Checkpoint/Login detected. Skipping.');
                 continue;
             }
 
-            await humanScroll(page, 3);
-            await randomDelay(2000, 4000);
+            // Scroll to load posts
+            console.log('    ⏳ Loading posts...');
+            await humanScroll(page, 5);
+            await randomDelay(2000, 3000);
 
             // Desktop Selectors
-            let postSelector = 'div[role="feed"] > div, div[role="article"]';
-            try {
-                await page.waitForSelector('div[role="feed"], div[role="article"]', { timeout: 10000 });
-            } catch (e) {
-                console.log('  ⚠️ Post selector not found (might be no results or layout change)');
-                if (!capturedErrors.has('facebook-no-posts-found')) {
-                    await screenshotDebugger.captureAndSend(page, 'facebook-no-posts-found', '⚠️ Facebook: Post selector not found (Layout change or No results)');
-                    capturedErrors.add('facebook-no-posts-found');
-                }
-            }
+            const postSelector = 'div[role="feed"] > div, div[role="article"]';
+            const postsCount = await page.locator(postSelector).count();
+            console.log(`    📄 Found ${postsCount} potential posts in feed.`);
 
-            const totalPostsFound = await page.locator(postSelector).count();
-            console.log(`  📄 Found ${totalPostsFound} visible posts`);
+            const maxPostsToCheck = Math.min(postsCount, 20); // Check up to 20
+            const processedUrls = new Set();
+            let validPostsInGroup = 0;
 
-            const maxValidPosts = 10;
-            const maxAttempts = Math.min(30, totalPostsFound);
-            let validPostsCount = 0;
+            for (let i = 0; i < maxPostsToCheck; i++) {
+                if (validPostsInGroup >= 5) break; // Limit per group
 
-            for (let i = 0; i < maxAttempts && validPostsCount < maxValidPosts; i++) {
-                // Occasional idle behavior (every ~5 posts)
-                if (i > 0 && i % 5 === 0) {
-                    await idleBehavior(page);
-                }
-
-                // CRITICAL FIX: Re-locate element by index on every iteration.
+                // Scroll to item
                 const post = page.locator(postSelector).nth(i);
+                if (await post.isVisible()) {
+                    await post.scrollIntoViewIfNeeded();
+                    await page.waitForTimeout(500); // Settle
+                }
 
-                await page.waitForTimeout(1000); // Stabilize before interacting
-
+                // Strategy: Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
+                let postUrl = '';
                 try {
-                    let textRaw = '';
-                    const messageEl = post.locator('div[data-ad-preview="message"], div[dir="auto"]').first();
-
-                    if (await messageEl.count() > 0) {
-                        textRaw = await messageEl.innerText().catch(() => '');
-                    }
-                    if (!textRaw || textRaw.length < 5) {
-                        textRaw = await post.innerText().catch(() => '');
-                    }
-
-                    const outerHtml = await post.evaluate(el => el.outerHTML).catch(() => '');
-                    if (outerHtml.includes('aria-label="Add friend"') || outerHtml.includes('aria-label="Add Friend"')) {
-                        continue;
-                    }
-                    if (!textRaw || textRaw.trim().length === 0) continue;
-
-                    const textNorm = normalizeText(textRaw);
-                    if (!textNorm.includes('golang')) continue;
-
-                    const isFresherOrJunior = CONFIG.includeRegex.test(textNorm) || /fresher|junior|intern|thực tập|trainee|đào tạo|learning|newbie/i.test(textNorm);
-                    const isSeniorOrLead = textNorm.includes('senior') || textNorm.includes('lead') || textNorm.includes('manager') || textNorm.includes('trưởng nhóm');
-                    const yoeMatch = textRaw.match(/([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)/i);
-
-                    if (!isFresherOrJunior) {
-                        if (isSeniorOrLead) {
-                            console.log(`    ⏭️ Skipping Senior/Lead post: ${textRaw.slice(0, 30)}...`);
-                            continue;
-                        }
-                        if (yoeMatch) {
-                            console.log(`    ⏭️ Skipping High YoE post (${yoeMatch[0]}): ${textRaw.slice(0, 30)}...`);
-                            continue;
-                        }
-                        // If no fresher signal AND no diverse tech stack signal, might be generic spam -> penalize later in score
-                    }
-
-                    const jobKeywords = /backend|back-end|developer|engineer|lập trình|coder|dev|phát triển|xây dựng|hệ thống|technical|tech|tuyển|hiring/i;
-                    if (!jobKeywords.test(textNorm)) continue;
-
-                    const isFresherPost = isFresherOrJunior;
-                    if (isFresherPost) console.log(`    🎯 FRESHER/JUNIOR post detected!`);
-
-                    const timeTextRegexSkip = /\b(\d+)\s+(months?|tháng|years?|năm)\s+(ago|trước)\b/i;
-                    const matchTime = textRaw.match(timeTextRegexSkip);
-                    if (matchTime) {
-                        const num = parseInt(matchTime[1]);
-                        const unit = matchTime[2].toLowerCase();
-                        if (unit.includes('year') || unit.includes('năm')) {
-                            console.log(`    ⏭️ Skipping old post (Year detected: ${num} ${unit})`);
-                            continue;
-                        }
-                        if ((unit.includes('month') || unit.includes('tháng')) && num > 2) {
-                            console.log(`    ⏭️ Skipping old post (> 2 months: ${num} ${unit})`);
-                            continue;
+                    // Try to find permalink in standard locations
+                    // 1. Timestamp usually has the link
+                    const links = await post.locator('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/groups/"]').all();
+                    for (const link of links) {
+                        const href = await link.getAttribute('href');
+                        if (href && (href.match(/\/posts\/\d+/) || href.match(/\/permalink\/\d+/))) {
+                            postUrl = href;
+                            break;
                         }
                     }
-                    const currentYear = new Date().getFullYear();
-                    const oldYearPattern = new RegExp(`\\b(${currentYear - 2}|${currentYear - 3})\\b`);
-                    if (oldYearPattern.test(textNorm)) {
-                        console.log(`    ⏭️ Skipping old post (found previous year)`);
-                        continue;
+
+                    // Normalize URL
+                    if (postUrl) {
+                        if (postUrl.startsWith('/')) postUrl = `https://www.facebook.com${postUrl}`;
+                        // Remove tracking params
+                        postUrl = postUrl.replace(/(\?|&)__cft__.*$/, '').replace(/(\?|&)ref=.*$/, '');
                     }
+                } catch (e) { }
 
-                    let postUrl = cleanGroupUrl;
-                    let clickedSuccess = false;
+                if (!postUrl) {
+                    // console.log(`      ⚠️ Could not extract URL for post ${i}. Skipping.`);
+                    continue;
+                }
 
+                if (processedUrls.has(postUrl)) continue;
+                processedUrls.add(postUrl);
+
+                console.log(`    🔍 Inspecting Post ${i + 1}/${maxPostsToCheck}: ${postUrl}`);
+
+                // OPEN NEW TAB
+                let detailPage = null;
+                try {
+                    detailPage = await context.newPage();
+                    await detailPage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                    // Wait for content
                     try {
-                        const svgs = await post.locator('span > span > svg').all();
-                        let targetSvg = null;
-
-                        for (const svg of svgs) {
-                            const box = await svg.boundingBox();
-                            if (!box) continue;
-                            if (box.width <= 20 && box.height <= 20) {
-                                targetSvg = svg;
-                                break;
-                            }
-                        }
-
-                        if (targetSvg) {
-                            try {
-                                await targetSvg.scrollIntoViewIfNeeded().catch(() => { });
-                                await page.waitForTimeout(500);
-                            } catch (e) { }
-
-                            const box = await targetSvg.boundingBox();
-
-                            if (box) {
-                                const centerY = box.y + (box.height / 2);
-                                const startUrl = page.url();
-                                const clickX = box.x - 20;
-
-                                let extractedTime = 'Recent';
-                                try {
-                                    const scaledYDelta = 25;
-                                    const tooltipY = centerY + scaledYDelta;
-
-                                    // NEW: PRODICTIVE SMART RETRY LOGIC (LOOP ACCUMULATION)
-                                    // Base Coordinates (User defined baseline)
-                                    let currentStart = box.x - 150; // User baseline
-                                    let currentEnd = box.x + 29;    // User baseline
-                                    let attempts = 0;
-                                    let satisfied = false;
-
-                                    // Increased attempts to allow iterative refinement
-                                    while (attempts < 5 && !satisfied) {
-                                        attempts++;
-
-                                        // Re-trigger tooltip sequence
-                                        await page.mouse.move(clickX, centerY, { steps: 5 });
-                                        await page.waitForTimeout(1000);
-                                        await page.mouse.move(clickX, tooltipY, { steps: 5 });
-                                        await page.waitForTimeout(100);
-
-                                        const dragStart = { x: currentStart, y: tooltipY };
-                                        const dragEnd = { x: currentEnd, y: tooltipY };
-
-                                        await page.mouse.move(dragStart.x, dragStart.y);
-                                        await page.mouse.down();
-                                        await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 25 });
-                                        await page.waitForTimeout(100);
-
-                                        let selectedText = await page.evaluate(() => window.getSelection().toString());
-                                        await page.mouse.up();
-
-                                        if (selectedText && selectedText.trim().length > 3) {
-                                            extractedTime = selectedText.trim();
-                                            let cleanT = extractedTime;
-
-                                            // Safety: If too long (> 35 words), or multiple lines, it's likely garbage
-                                            const wordCount = cleanT.split(/\s+/).length;
-                                            // Relaxed constraints: > 35 words or > 250 chars
-                                            if (cleanT.length > 250 || wordCount > 35 || cleanT.includes('\n') || cleanT.includes('\r')) {
-                                                console.log(`      ⚠️ Timestamp likely garbage (${cleanT.length} chars, ${wordCount} words). Fallback to 'Recent'.`);
-                                                extractedTime = 'Recent';
-                                                satisfied = true;
-                                                break;
-                                            }
-
-                                            // Refinement Logic (Run on every attempt)
-                                            const PPC = 5; // Pixels per character (Estimated)
-                                            let addLeftPx = 0;
-                                            let addRightPx = 0;
-
-                                            // --- Left Truncation Logic ---
-                                            // Check for partial starts
-                                            if (/^u,/i.test(cleanT)) addLeftPx = 7 * PPC;         // "u," -> "Thứ Sáu," 
-                                            else if (/^ư,/i.test(cleanT)) addLeftPx = 6 * PPC;    // "ư," -> "Thứ Tư,"
-                                            else if (/^(ay|ai),/i.test(cleanT)) addLeftPx = 6 * PPC; // "ai,"/"ay," -> "Thứ Hai,"/"Thứ Bảy,"
-                                            else if (/^(am|ăm),/i.test(cleanT)) addLeftPx = 6 * PPC; // "ăm," -> "Thứ Năm,"
-                                            else if (/^(at|ật),/i.test(cleanT)) addLeftPx = 7 * PPC; // "ật," -> "Chủ Nhật,"
-                                            else if (/^ba,/i.test(cleanT)) addLeftPx = 6 * PPC;    // "ba," -> "Thứ Ba,"
-                                            else if (/^hứ/i.test(cleanT)) addLeftPx = 3 * PPC;     // "hứ" -> "Thứ"
-                                            else if (/^ủ/i.test(cleanT)) addLeftPx = 4 * PPC;      // "ủ" -> "Chủ"
-                                            else if (/^ứ/i.test(cleanT)) addLeftPx = 4 * PPC;
-                                            else if (/^,/.test(cleanT)) addLeftPx = 9 * PPC;
-                                            else if (/^\d/.test(cleanT)) addLeftPx = 13 * PPC;
-                                            else if (/^T(\s|$)/.test(cleanT)) addLeftPx = 4 * PPC; // "T " -> "Thứ"
-                                            else if (/^C(\s|$)/.test(cleanT)) addLeftPx = 4 * PPC; // "C " -> "Chủ"
-
-
-                                            // --- Right Truncation Logic ---
-                                            if (/lúc\s*$/i.test(cleanT)) addRightPx = 7 * PPC;        // Ends with "lúc"
-                                            else if (/\d{4}\s*$/i.test(cleanT)) addRightPx = 13 * PPC; // Ends with Year
-                                            else if (/:\s*$/i.test(cleanT)) addRightPx = 3 * PPC;     // Ends with ":"
-                                            else if (/:\d\s*$/i.test(cleanT)) addRightPx = 1.5 * PPC; // Ends with ":5"
-
-                                            if (addLeftPx > 0 || addRightPx > 0) {
-                                                console.log(`      ⚠️ Truncated ("${cleanT.slice(0, 10)}...${cleanT.slice(-10)}"). Adding: L+${addLeftPx}px, R+${addRightPx}px`);
-                                                currentStart -= addLeftPx;
-                                                currentEnd += addRightPx;
-
-                                                console.log(`      ⏳ Adjustment applied. Retry attempt ${attempts + 1}...`);
-                                                await page.waitForTimeout(1000);
-                                                continue; // Loop again for next attempt
-                                            }
-
-                                            satisfied = true;
-                                        } else {
-                                            break;
-                                        }
-                                    }
-
-                                } catch (e) {
-                                    console.log(`      ⚠️ Timestamp Extract Failed: ${e.message}`);
-                                    try { await page.mouse.up(); } catch (err) { }
-                                }
-
-                                console.log(`      🖱️ Smart Scan Final. Time: "${extractedTime}"`);
-
-                                // FORCE PAUSE to prevent "machine gun" clicking
-                                console.log('      ⏳ Waiting 2s before clicking link...');
-                                await page.waitForTimeout(2000);
-
-                                try {
-                                    // CLICK LINK
-                                    await page.mouse.move(clickX, centerY, { steps: 5 });
-                                    await page.mouse.click(clickX, centerY);
-                                    await page.waitForTimeout(1000);
-
-                                    const currentUrl = page.url();
-                                    if (currentUrl !== startUrl && (currentUrl.includes('/posts/') || currentUrl.includes('/permalink/'))) {
-                                        postUrl = currentUrl;
-                                        clickedSuccess = true;
-                                        console.log(`      🔗 SUCCESS! Link Clicked. URL: ${currentUrl}`);
-
-                                        await page.goBack();
-                                        await page.waitForLoadState('domcontentloaded');
-                                        await randomDelay(1000, 2000);
-                                    } else {
-                                        if (currentUrl !== startUrl) await page.goBack();
-                                    }
-                                } catch (e) {
-                                    console.log(`      ⚠️ Click Action Failed: ${e.message}`);
-                                }
-
-                                var jobTime = extractedTime;
-                            }
-                        }
-
+                        await detailPage.waitForSelector('div[role="main"], div.x1n2onr6', { state: 'visible', timeout: 5000 });
                     } catch (e) {
-                        console.log(`      ⚠️ Click Strategy Error: ${e.message}`);
+                        // Sometimes simple content
                     }
 
-                    if (!clickedSuccess) {
-                        const links = await post.locator('a[href]').all();
-                        let foundPermalink = '';
-                        for (const link of links) {
-                            const href = await link.getAttribute('href');
-                            if (!href) continue;
-                            if (href.includes('/posts/') && !href.includes('/user/')) {
-                                foundPermalink = href;
-                                break;
-                            }
-                            if (href.includes('/permalink/') && !foundPermalink) foundPermalink = href;
-                        }
+                    // SIMULATE READING BEHAVIOR
+                    await randomDelay(1000, 2000); // Initial load wait
+                    await humanScroll(detailPage, 2); // Scroll down to read
+                    await randomDelay(1000, 2500); // Read content
 
-                        if (foundPermalink) {
-                            const baseUrl = 'https://www.facebook.com';
-                            let fullUrl = foundPermalink.startsWith('http') ? foundPermalink : `${baseUrl}${foundPermalink}`;
-                            fullUrl = fullUrl.replace(/([^:]\/)\/+/g, "$1").split('?')[0];
-                            postUrl = fullUrl;
-                        } else {
-                            for (const link of links) {
-                                const href = await link.getAttribute('href');
-                                if (href && href.includes('/groups/') && href.length > 50 && !href.includes('/user/')) {
-                                    postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    // Get Full Text
+                    const bodyText = await detailPage.locator('body').innerText();
+                    const cleanText = normalizeText(bodyText);
 
-                    let location = 'Unknown';
-                    if (textNorm.includes('remote') || textNorm.includes('tu xa') || textNorm.includes('online')) location = 'Remote';
-                    else if (textNorm.includes('can tho')) location = 'Cần Thơ';
-                    else if (textNorm.includes('ha noi') || textNorm.includes('ho chi minh') || textNorm.includes('hcm') || textNorm.includes('saigon')) location = 'Hanoi/HCM';
-
+                    // Quick content check on Detail Page
                     const job = {
-                        title: textRaw.split('\n')[0].slice(0, 100),
+                        title: (await detailPage.title()).replace(' | Facebook', ''),
                         company: 'Facebook Group',
                         url: postUrl,
-                        preview: textRaw.slice(0, 100).trim(),
-                        salary: 'Negotiable',
-                        location: location,
+                        description: bodyText.slice(0, 2000), // Cap length
+                        location: 'Unknown',
                         source: 'Facebook',
                         techStack: 'Golang',
-                        description: textRaw.slice(0, 300),
-                        postedDate: (typeof jobTime !== 'undefined' && jobTime !== 'Recent') ? jobTime : 'Recent',
-                        matchScore: calculateMatchScore({ title: textRaw, location: location.toLowerCase() }),
-                        isFresher: isFresherPost
+                        postedDate: 'Recent', // We rely on the search filter "2026"
+                        isFresher: false
                     };
 
+                    // === FILTER IMMEDIATELY ===
+                    const shouldInclude = shouldIncludeJob(job);
+                    if (!shouldInclude) {
+                        console.log(`      ❌ Filtered out (Exp/Date/Content).`);
+                        continue;
+                    }
+
+                    // Determine Location
+                    if (cleanText.includes('hanoi') || cleanText.includes('ha noi')) job.location = 'Hanoi';
+                    else if (cleanText.includes('ho chi minh') || cleanText.includes('hcm') || cleanText.includes('saigon')) job.location = 'HCM';
+                    else if (cleanText.includes('remote')) job.location = 'Remote';
+
+                    // Match Score
+                    job.matchScore = calculateMatchScore(job);
+
+                    console.log(`      ✅ Valid Job Found! Score: ${job.matchScore}`);
                     jobs.push(job);
-                    validPostsCount++;
-                    console.log(`    ✅ Potential Post: ${job.title.slice(0, 40)}... (URL: ${job.url})`);
+                    validPostsInGroup++;
 
                 } catch (e) {
-                    // skip
+                    console.log(`      ⚠️ Error processing detail page: ${e.message}`);
+                } finally {
+                    if (detailPage) await detailPage.close();
+                    await randomDelay(1000, 2000); // Be gentle
                 }
             }
 
         } catch (error) {
             console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
         }
-
-        await randomDelay(1000, 2000);
     }
 
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
