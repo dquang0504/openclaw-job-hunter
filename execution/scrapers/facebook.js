@@ -32,14 +32,14 @@ async function scrapeFacebook(page, reporter) {
         console.log('🏠 Navigating to Facebook Home for warm-up...');
         await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
 
-        // Randomize warm-up duration (10-20s)
-        const warmUpDuration = 10000 + Math.random() * 10000;
+        // Randomize warm-up duration (5-8s)
+        const warmUpDuration = 5000 + Math.random() * 3000;
         const startTime = Date.now();
         console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
 
         while (Date.now() - startTime < warmUpDuration) {
             await mouseJiggle(page);
-            await page.waitForTimeout(2000 + Math.random() * 2000);
+            await page.waitForTimeout(1000 + Math.random() * 1000);
         }
         console.log('✅ Warm-up complete. Starting scraping...');
     } catch (e) {
@@ -283,10 +283,8 @@ async function scrapeFacebook(page, reporter) {
                         }
                     }
 
-                    // SIMULATE READING BEHAVIOR
-                    await randomDelay(2000, 3000); // Wait longer for render
-                    await humanScroll(detailPage, 3); // Scroll deeper
-                    await randomDelay(1000, 2000); // Read content
+                    // SIMULATE READING BEHAVIOR (OPTIMIZED)
+                    await randomDelay(500, 1000);
 
                     // Get Full Text (Preferred from story_message)
                     let bodyText = '';
@@ -394,7 +392,7 @@ async function scrapeFacebook(page, reporter) {
                     console.log(`      ⚠️ Error processing detail page: ${e.message}`);
                 } finally {
                     if (detailPage) await detailPage.close();
-                    await randomDelay(3000, 5000); // Wait longer before next iteration
+                    await randomDelay(1000, 2000); // Optimized wait
                 }
             }
 
