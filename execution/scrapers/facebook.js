@@ -99,7 +99,127 @@ async function scrapeFacebook(page, reporter) {
                     await page.waitForTimeout(500); // Settle
                 }
 
-                // Strategy: Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
+                // Strategy: Extract Timestamp -> Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
+                // --- TIMESTAMP EXTRACTION START ---
+                let jobTime = 'Recent';
+                try {
+                    const svgs = await post.locator('span > span > svg, span > a > span[id] > span').all();
+                    let targetSvg = null;
+
+                    // Heuristic: Find small icon (clock/globe)
+                    for (const svg of svgs) {
+                        const box = await svg.boundingBox();
+                        if (!box) continue;
+                        if (box.width <= 20 && box.height <= 20) {
+                            targetSvg = svg;
+                            break;
+                        }
+                    }
+
+                    if (targetSvg) {
+                        try {
+                            await targetSvg.scrollIntoViewIfNeeded().catch(() => { });
+                            await page.waitForTimeout(500);
+                        } catch (e) { }
+
+                        const box = await targetSvg.boundingBox();
+                        if (box) {
+                            const centerY = box.y + (box.height / 2);
+                            const clickX = box.x - 20;
+                            const tooltipY = centerY + 25; // Estimated tooltip Y position
+
+                            // Base coordinates for drag selection
+                            let currentStart = box.x - 150;
+                            let currentEnd = box.x + 29;
+                            let attempts = 0;
+                            let satisfied = false;
+
+                            // Loop to refine selection
+                            while (attempts < 5 && !satisfied) {
+                                attempts++;
+
+                                // 1. Trigger Tooltip
+                                await page.mouse.move(clickX, centerY, { steps: 5 });
+                                await page.waitForTimeout(1000); // Wait for tooltip to appear
+                                await page.mouse.move(clickX, tooltipY, { steps: 5 });
+                                await page.waitForTimeout(100);
+
+                                // 2. Select Text (Drag)
+                                const dragStart = { x: currentStart, y: tooltipY };
+                                const dragEnd = { x: currentEnd, y: tooltipY };
+
+                                await page.mouse.move(dragStart.x, dragStart.y);
+                                await page.mouse.down();
+                                await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 25 });
+                                await page.waitForTimeout(100);
+
+                                let selectedText = await page.evaluate(() => window.getSelection().toString());
+                                await page.mouse.up();
+
+                                // 3. Analyze Selection
+                                if (selectedText && selectedText.trim().length > 3) {
+                                    let cleanT = selectedText.trim();
+
+                                    // Safety Check: Garbage or too long
+                                    const wordCount = cleanT.split(/\s+/).length;
+                                    if (cleanT.length > 250 || wordCount > 35 || cleanT.includes('\n') || cleanT.includes('\r')) {
+                                        console.log(`      ⚠️ Timestamp likely garbage (${cleanT.length} chars). Fallback to 'Recent'.`);
+                                        jobTime = 'Recent';
+                                        satisfied = true;
+                                        break;
+                                    }
+
+                                    // 4. Refinement Logic (PPC - Pixels Per Char)
+                                    const PPC = 5;
+                                    let addLeftPx = 0;
+                                    let addRightPx = 0;
+
+                                    // Left Truncation fixes (e.g. "u," -> "Thứ Sáu,")
+                                    if (/^u,/i.test(cleanT)) addLeftPx = 7 * PPC;
+                                    else if (/^ư,/i.test(cleanT)) addLeftPx = 6 * PPC;
+                                    else if (/^(ay|ai),/i.test(cleanT)) addLeftPx = 6 * PPC;
+                                    else if (/^(am|ăm),/i.test(cleanT)) addLeftPx = 6 * PPC;
+                                    else if (/^(at|ật),/i.test(cleanT)) addLeftPx = 7 * PPC;
+                                    else if (/^ba,/i.test(cleanT)) addLeftPx = 6 * PPC;
+                                    else if (/^hứ/i.test(cleanT)) addLeftPx = 3 * PPC;
+                                    else if (/^ủ/i.test(cleanT)) addLeftPx = 4 * PPC;
+                                    else if (/^ứ/i.test(cleanT)) addLeftPx = 4 * PPC;
+                                    else if (/^,/.test(cleanT)) addLeftPx = 9 * PPC;
+                                    else if (/^\d/.test(cleanT)) addLeftPx = 13 * PPC;
+                                    else if (/^T(\s|$)/.test(cleanT)) addLeftPx = 4 * PPC;
+                                    else if (/^C(\s|$)/.test(cleanT)) addLeftPx = 4 * PPC;
+
+                                    // Right Truncation fixes
+                                    if (/lúc\s*$/i.test(cleanT)) addRightPx = 7 * PPC;
+                                    else if (/\d{4}\s*$/i.test(cleanT)) addRightPx = 13 * PPC;
+                                    else if (/:\s*$/i.test(cleanT)) addRightPx = 3 * PPC;
+                                    else if (/:\d\s*$/i.test(cleanT)) addRightPx = 1.5 * PPC;
+
+                                    // Apply adjustments and retry if needed
+                                    if (addLeftPx > 0 || addRightPx > 0) {
+                                        console.log(`      ⚠️ Truncated ("${cleanT.slice(0, 10)}...${cleanT.slice(-10)}"). Adding: L+${addLeftPx}px, R+${addRightPx}px`);
+                                        currentStart -= addLeftPx;
+                                        currentEnd += addRightPx;
+                                        await page.waitForTimeout(500);
+                                        continue;
+                                    }
+
+                                    // If good, save and exit loop
+                                    jobTime = cleanT;
+                                    satisfied = true;
+                                    console.log(`      🕒 Extracted Time: "${jobTime}"`);
+                                } else {
+                                    break; // Nothing selected
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log(`      ⚠️ Timestamp Extract Error: ${e.message}`);
+                    try { await page.mouse.up(); } catch (err) { }
+                }
+                // --- TIMESTAMP EXTRACTION END ---
+
                 let postUrl = '';
                 try {
                     // Try to find permalink in standard locations
@@ -135,22 +255,83 @@ async function scrapeFacebook(page, reporter) {
                 let detailPage = null;
                 try {
                     detailPage = await context.newPage();
-                    await detailPage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    console.log(`      🚀 Navigating to detail page...`);
 
-                    // Wait for content
+                    // Navigate and wait longer
+                    await detailPage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+                    // Wait for main content container specifically
                     try {
-                        await detailPage.waitForSelector('div[role="main"], div.x1n2onr6', { state: 'visible', timeout: 5000 });
+                        await detailPage.waitForSelector('div[data-ad-rendering-role="story_message"]', {
+                            state: 'visible',
+                            timeout: 10000
+                        });
+                        console.log(`      📄 Detail page content loaded.`);
+
+                        // Safety Check: Verify we are still on a post page
+                        const currentDetailUrl = detailPage.url();
+                        if (!currentDetailUrl.includes('/posts/') && !currentDetailUrl.includes('/permalink/') && !currentDetailUrl.includes('/groups/')) {
+                            console.log(`      ⚠️ Redirected to non-post URL: ${currentDetailUrl}`);
+                            throw new Error('Redirected to non-post URL (Home/Feed)');
+                        }
                     } catch (e) {
-                        // Sometimes simple content
+                        if (e.message.includes('Redirected')) throw e;
+                        try {
+                            await detailPage.waitForSelector('div[role="main"], div[role="article"]', { timeout: 5000 });
+                        } catch (err) {
+                            console.log(`      ⚠️ Content timeout, proceeding...`);
+                        }
                     }
 
                     // SIMULATE READING BEHAVIOR
-                    await randomDelay(1000, 2000); // Initial load wait
-                    await humanScroll(detailPage, 2); // Scroll down to read
-                    await randomDelay(1000, 2500); // Read content
+                    await randomDelay(2000, 3000); // Wait longer for render
+                    await humanScroll(detailPage, 3); // Scroll deeper
+                    await randomDelay(1000, 2000); // Read content
 
-                    // Get Full Text
-                    const bodyText = await detailPage.locator('body').innerText();
+                    // Get Full Text (Preferred from story_message)
+                    let bodyText = '';
+                    try {
+                        const storyMessage = detailPage.locator('div[data-ad-rendering-role="story_message"]');
+                        if (await storyMessage.count() > 0) {
+                            // Gather all parts of the story message (sometimes split)
+                            bodyText = await storyMessage.allInnerTexts().then(texts => texts.join('\n'));
+                            console.log('      🎯 Extracted from story_message container.');
+                        } else {
+                            // Fallback 1: Role main
+                            const mainRole = detailPage.locator('div[role="main"]');
+                            if (await mainRole.count() > 0) {
+                                bodyText = await mainRole.innerText();
+                            } else {
+                                // Fallback 2: Body (Last resort)
+                                bodyText = await detailPage.locator('body').innerText();
+                            }
+                        }
+                    } catch (e) {
+                        bodyText = await detailPage.locator('body').innerText();
+                    }
+
+                    // Remove UI clutter (Likes, Comments, Shares, Footer)
+                    const uiPatterns = [
+                        /Tất cả cảm xúc:.*$/s,
+                        /All reactions:.*$/s,
+                        /Facebook Facebook Facebook.*$/s,
+                        /Viết câu trả lời\.\.\..*$/s,
+                        /Viết bình luận công khai.*$/s,
+                        /Write a comment.*$/s,
+                        /Thích\s+Bình luận\s+Chia sẻ.*$/s,
+                        /Like\s+Comment\s+Share.*$/s
+                    ];
+
+                    for (const pattern of uiPatterns) {
+                        bodyText = bodyText.replace(pattern, '').trim();
+                    }
+
+                    // LOGGING REQUIRED BY USER
+                    const contentSnippet = bodyText.slice(-300).replace(/\n/g, ' '); // Last 300 chars
+                    console.log(`      📝 Post Details:`);
+                    console.log(`          Link: ${postUrl}`);
+                    console.log(`          Time: ${jobTime}`);
+                    console.log(`          Content (End): "...${contentSnippet}"`);
                     const cleanText = normalizeText(bodyText);
 
                     // Quick content check on Detail Page
@@ -158,7 +339,7 @@ async function scrapeFacebook(page, reporter) {
                         title: (await detailPage.title()).replace(' | Facebook', ''),
                         company: 'Facebook Group',
                         url: postUrl,
-                        description: bodyText.slice(0, 2000), // Cap length
+                        description: bodyText.slice(0, 2000), // Cap length after cleaning
                         location: 'Unknown',
                         source: 'Facebook',
                         techStack: 'Golang',
@@ -166,11 +347,35 @@ async function scrapeFacebook(page, reporter) {
                         isFresher: false
                     };
 
-                    // === FILTER IMMEDIATELY ===
-                    const shouldInclude = shouldIncludeJob(job);
-                    if (!shouldInclude) {
-                        console.log(`      ❌ Filtered out (Exp/Date/Content).`);
+                    // === FILTER IMMEDIATELY & LOG REASON ===
+                    const jobText = `${job.title} ${job.description}`.toLowerCase();
+                    const currentYear = new Date().getFullYear();
+
+                    // 1. Keyword Check
+                    if (!CONFIG.keywordRegex.test(jobText)) {
+                        console.log(`      ❌ Filtered out: Missing Keyword (Golang)`);
                         continue;
+                    }
+
+                    // 2. Experience Check
+                    if (CONFIG.excludeRegex.test(jobText)) {
+                        console.log(`      ❌ Filtered out: Senior/Lead/Manager detected`);
+                        continue;
+                    }
+                    const expMatch = jobText.match(/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yrs?|yoe)\b/i);
+                    if (expMatch) {
+                        console.log(`      ❌ Filtered out: High Exp (${expMatch[0]})`);
+                        continue;
+                    }
+
+                    // 3. Date Check (Strict 2026/Recent)
+                    if (jobTime !== 'Recent' && !jobTime.includes(currentYear.toString())) {
+                        // Double check if it's late previous year (e.g. Dec 2025 in Jan 2026) -> Handled by isRecentJob but here we are strict for log
+                        const isRecent = require('../lib/filters').isRecentJob(jobTime);
+                        if (!isRecent) {
+                            console.log(`      ❌ Filtered out: Old Date (${jobTime})`);
+                            continue;
+                        }
                     }
 
                     // Determine Location
@@ -189,7 +394,7 @@ async function scrapeFacebook(page, reporter) {
                     console.log(`      ⚠️ Error processing detail page: ${e.message}`);
                 } finally {
                     if (detailPage) await detailPage.close();
-                    await randomDelay(1000, 2000); // Be gentle
+                    await randomDelay(3000, 5000); // Wait longer before next iteration
                 }
             }
 

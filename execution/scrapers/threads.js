@@ -379,7 +379,7 @@ async function scrapeKeyword(page, keyword, reporter) {
  */
 async function scrapeThreadsParallel(context, reporter) {
     console.log('🧵 Starting Parallel Threads Scraping...');
-    const keywords = ['golang', 'fresher golang', 'junior golang', 'golang developer'];
+    const keywords = ['golang'];
 
     const results = await Promise.all(keywords.map(async (keyword) => {
         let page = null;
@@ -440,7 +440,7 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
     }
     // --- END LOGIN CHECK ---
 
-    const defaultKeywords = ['golang', 'fresher golang', 'junior golang', 'golang developer'];
+    const defaultKeywords = ['golang'];
     const keywords = customKeywords || defaultKeywords;
 
     const allJobs = [];

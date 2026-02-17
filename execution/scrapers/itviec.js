@@ -319,13 +319,13 @@ async function scrapeITViec(page, reporter) {
                                 jobs.push(job);
                                 console.log(`      ✅ ${job.title} - ${job.company}`);
                             })(),
-                            // Timeout promise: 8 seconds max per card
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('Card processing timeout')), 8000))
+                            // Timeout promise: 3 seconds max per card
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Card processing timeout')), 3000))
                         ]);
 
                     } catch (e) {
                         if (e.message === 'Card processing timeout') {
-                            console.warn('      ⏱️ Card processing timed out (8s), skipping...');
+                            console.warn('      ⏱️ Card processing timed out (3s), skipping...');
                         }
                         // Silent fail for other errors
                     }
