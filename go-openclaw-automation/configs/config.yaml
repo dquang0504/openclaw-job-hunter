@@ -5,8 +5,6 @@ telegram_chat_id: 0
 # Search criteria
 keywords:
   - golang
-  - go developer
-  - backend
 
 locations:
   - remote
@@ -17,6 +15,17 @@ locations:
   - sai gon
   - ho chi minh city
   - online
+
+#Exclude keywords
+exclude_keywords:
+  - senior
+  - lead
+  - manager
+  - "tech lead"
+  - "team lead"
+  - "head of"
+  - director
+  - principal
 
 #Facebook groups to scrape
 facebook_groups:

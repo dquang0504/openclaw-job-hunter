@@ -12,7 +12,6 @@ type PlaywrightManager struct {
 	browser playwright.Browser
 }
 
-// Todo: Tại sao tôi thấy bạn dùng playwright.Bool(true) mà không dùng true? Hai cái đó có gì khác nhau không ?
 func NewPlaywright(ctx context.Context) (*PlaywrightManager, error) {
 	//Install playwright
 	err := playwright.Install()
@@ -27,8 +26,9 @@ func NewPlaywright(ctx context.Context) (*PlaywrightManager, error) {
 	}
 
 	//launch chromium
+	//Todo: giải thích giúp mình cái headless trong chromium đó nếu không set cho nil thì ra sao ? nếu set false thì ra sao ? nếu true thì sao ? headless đó có ý nghĩa gì ?
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
+		Headless: playwright.Bool(false),
 	})
 	if err != nil {
 		pw.Stop()
@@ -40,8 +40,6 @@ func NewPlaywright(ctx context.Context) (*PlaywrightManager, error) {
 		browser: browser,
 	}, nil
 }
-
-//Todo: nó đang báo với mình lỗi cannot use ... in call to non-variadic ctx.AddCookiescompilerNonVariadicDotDotDot. Hướng dẫn mình sửa trong chat luôn nhé.
 
 func (pm *PlaywrightManager) NewContext(cookies []playwright.OptionalCookie) (playwright.BrowserContext, error) {
 	//create context with stealth settings

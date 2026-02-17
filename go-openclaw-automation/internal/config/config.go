@@ -21,6 +21,7 @@ type Config struct {
 	//Search criteria
 	Locations      []string `yaml:"locations"`
 	FacebookGroups []string `yaml:"facebook_groups"`
+	ExcludeKeywords []string `yaml:"exclude_keywords"`
 	//Paths
 	CookiesPath string `yaml:"cookies_path"`
 	CachePath   string `yaml:"cache_path"`
