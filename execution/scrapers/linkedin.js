@@ -75,7 +75,7 @@ async function scrapeLinkedIn(page, reporter) {
                 await page.waitForSelector('li.scaffold-layout__list-item, .job-card-container', { timeout: 15000 });
             } catch (e) {
                 console.log('    ⚠️ Main list selector not found, trying fallback...');
-                await screenshotDebugger.capture(page, 'linkedin_job_list_missing');
+                await screenshotDebugger.captureAndSend(page, 'linkedin_job_list_missing');
                 if (await page.locator('h1.artdeco-empty-state__headline').count() > 0) {
                     console.log('    ⚠️ No jobs found for this keyword.');
                 }
@@ -191,7 +191,7 @@ async function scrapeLinkedIn(page, reporter) {
                     }
                 } catch (e) {
                     console.log(`      ⚠️ Job Error: ${e.message}`);
-                    await screenshotDebugger.capture(page, `linkedin_job_w_${i}`);
+                    await screenshotDebugger.captureAndSend(page, `linkedin_job_w_${i}`);
                 }
             }
 
@@ -210,7 +210,7 @@ async function scrapeLinkedIn(page, reporter) {
                 await page.waitForSelector(updateSelector, { timeout: 15000 });
             } catch (e) {
                 console.log('      ⚠️ Posts selector not found (might be no results).');
-                await screenshotDebugger.capture(page, 'linkedin_post_list_missing');
+                await screenshotDebugger.captureAndSend(page, 'linkedin_post_list_missing');
             }
 
             const updates = await page.locator(updateSelector).all();
@@ -301,7 +301,7 @@ async function scrapeLinkedIn(page, reporter) {
                     }
                 } catch (e) {
                     console.log(`      ⚠️ Post Error: ${e.message}`);
-                    await screenshotDebugger.capture(page, `linkedin_post_error_${i}`);
+                    await screenshotDebugger.captureAndSend(page, `linkedin_post_error_${i}`);
                 }
             }
 
@@ -310,7 +310,7 @@ async function scrapeLinkedIn(page, reporter) {
 
     } catch (error) {
         console.error(`  ❌ LinkedIn Scrape Error: ${error.message}`);
-        await screenshotDebugger.capture(page, 'linkedin_fatal_error');
+        await screenshotDebugger.captureAndSend(page, 'linkedin_fatal_error');
     }
 
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
