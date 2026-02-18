@@ -291,6 +291,7 @@ async function scrapeLinkedIn(page, reporter) {
                     }
                 } catch (e) {
                     console.log(`      ⚠️ Post Error: ${e.message}`);
+                    await screenshotDebugger.capture(page, `linkedin_post_error_${i}`);
                 }
             }
 
