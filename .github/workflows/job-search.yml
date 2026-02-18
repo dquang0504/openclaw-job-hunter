@@ -19,7 +19,7 @@ jobs:
           - name: facebook
             arg: facebook
           - name: threads
-            arg: threads
+            arg: threads,linkedin
           - name: others
             # Groups lighter/faster scrapers together
             arg: 'topcv,twitter,indeed,vercel,cloudflare,topdev,itviec'

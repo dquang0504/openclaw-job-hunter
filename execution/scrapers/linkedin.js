@@ -1,173 +1,226 @@
 /**
- * LinkedIn Posts Scraper - Authenticated Mode
- * Simplified version with faster processing
+ * LinkedIn Job Scraper - Authenticated Mode
+ * Scrapes job listings directly from LinkedIn Jobs Search
  */
 
 const CONFIG = require('../config');
 const {
     randomDelay,
-    getRandomUserAgent,
+    humanScroll,
+    mouseJiggle,
     applyStealthSettings
 } = require('../lib/stealth');
-
-const LINKEDIN_SEARCH_URL = 'https://www.linkedin.com/search/results/content/';
-
-const LINKEDIN_KEYWORDS = [
-    'remote intern golang',
-    'fresher golang',
-    'entry level golang'
-];
+const { calculateMatchScore } = require('../lib/filters');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
  */
 const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-function buildSearchUrl(keyword) {
-    const params = new URLSearchParams({
-        keywords: keyword,
-        sortBy: '"date_posted"',
-        origin: 'FACETED_SEARCH'
-    });
-    return `${LINKEDIN_SEARCH_URL}?${params.toString()}`;
-}
-
 async function scrapeLinkedIn(page, reporter) {
-    console.log('💼 Searching LinkedIn Posts (Authenticated)...');
-    console.log('  🔐 Using cookies for login');
-    console.log('  📅 Filter: Posts + Latest');
+    console.log('💼 Searching LinkedIn Jobs (Authenticated)...');
 
-    const jobs = [];
+    // Ensure stealth settings are active
     await applyStealthSettings(page);
 
-    // Warm up the session by visiting feed first
-    try {
-        console.log('  🔥 Warming up session (visiting feed)...');
-        await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 15000 });
-        await randomDelay(2000, 3000);
-    } catch (e) {
-        console.log('  ⚠️ Warmup warning:', e.message);
-    }
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
+    const jobs = [];
+    const context = page.context();
 
-    for (const keyword of LINKEDIN_KEYWORDS) {
-        if (page.isClosed()) {
-            console.log('  ⚠️ Browser closed, stopping search');
-            break;
+    // --- WARM UP PHASE ---
+    try {
+        console.log('🏠 Navigating to LinkedIn Feed for warm-up...');
+        await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Randomize warm-up duration (2-4s)
+        const warmUpDuration = 2000 + Math.random() * 2000;
+        const startTime = Date.now();
+        console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
+
+        while (Date.now() - startTime < warmUpDuration) {
+            await mouseJiggle(page);
+            await page.waitForTimeout(1000 + Math.random() * 1000);
+        }
+    } catch (e) {
+        console.log('⚠️ Warm-up failed (non-critical):', e.message);
+    }
+    // --- END WARM UP ---
+
+    // Define Search URLs (User provided)
+    // 1. History/Search origin
+    const SEARCH_ORIGIN_URL = 'https://www.linkedin.com/search/results/all/?keywords=fresher%20golang&origin=HISTORY&position=0&sid=oz%3A';
+    // 2. Job Search with filters (Fresher, Past Month, etc.)
+    const JOB_SEARCH_URL = 'https://www.linkedin.com/jobs/search/?currentJobId=4324438500&f_E=1%2C2%2C3&f_TPR=r2592000&keywords=fresher%20golang&origin=JOB_SEARCH_PAGE_JOB_FILTER&spellCorrectionEnabled=true';
+
+    try {
+        // 1. Visit Search Origin
+        console.log(`  🌐 Visiting Search Origin: ${SEARCH_ORIGIN_URL}`);
+        await page.goto(SEARCH_ORIGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await randomDelay(2000, 3000);
+
+        // 2. Visit Job Search URL
+        console.log(`  🔍 Visiting Job Search: ${JOB_SEARCH_URL}`);
+        await page.goto(JOB_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Wait for job list to load
+        console.log('    ⏳ Waiting for job list...');
+        try {
+            await page.waitForSelector('.jobs-search-results-list', { timeout: 15000 });
+        } catch (e) {
+            console.log('    ⚠️ Main list selector not found, trying fallback...');
+            await page.waitForSelector('ul.scaffold-layout__list-container', { timeout: 10000 });
         }
 
-        try {
-            console.log(`\n  🔍 Searching: "${keyword}"`);
+        await randomDelay(2000, 3000);
+        await humanScroll(page, 3); // Scroll down a bit to load more items
 
-            const searchUrl = buildSearchUrl(keyword);
-            await page.goto(searchUrl, {
-                waitUntil: 'domcontentloaded',
-                timeout: 15000
-            });
+        // Selectors provided by user
+        // List Item: li.scaffold-layout__list-item
+        // Card (Clickable): div.job-card-container
+        const jobItemsSelector = 'li.scaffold-layout__list-item, li.jobs-search-results__list-item';
 
-            await randomDelay(1500, 2000);
+        const jobItems = await page.locator(jobItemsSelector).all();
+        console.log(`    📄 Found ${jobItems.length} potential jobs in list.`);
 
-            // Robust login check with wait
+        const maxJobs = Math.min(jobItems.length, 10); // Limit to 10 jobs
+
+        for (let i = 0; i < maxJobs; i++) {
             try {
-                // Wait up to 5s for the nav to appear
-                await page.waitForSelector('.global-nav__me, .global-nav__primary-link', { timeout: 5000 });
-                console.log('  ✅ Logged in successfully');
-            } catch (e) {
-                console.log('  ⚠️ Not logged in (Session invalid or element not found)');
-                continue;
-            }
+                const item = jobItems[i];
 
-            // Wait for posts
-            await page.waitForTimeout(2000);
+                // Click on the job card to load details
+                const card = item.locator('.job-card-container').first();
+                if (await card.isVisible()) {
+                    console.log(`    👆 Clicking job ${i + 1}/${maxJobs}...`);
 
-            // Get posts with simple textContent
-            const posts = await page.locator('.feed-shared-update-v2').all();
-            console.log(`  📦 Found ${posts.length} posts`);
+                    // Specific handling for clicking to ensuring it registers
+                    await card.scrollIntoViewIfNeeded();
+                    await card.click();
 
-            // Process max 5 posts quickly
-            for (let i = 0; i < Math.min(posts.length, 5); i++) {
-                try {
-                    // Try innerText first, then specific selectors
-                    let postText = await posts[i].innerText({ timeout: 3000 }).catch(() => null);
+                    // Wait for detail view to load
+                    // Selector: article.jobs-description__container > ... > div#job-details
+                    await page.waitForTimeout(1000); // Initial wait
 
-                    // If innerText is mostly whitespace, try specific content selectors
-                    if (!postText || postText.replace(/\s/g, '').length < 30) {
-                        // Try .feed-shared-text or .break-words
-                        const textEl = await posts[i].locator('.feed-shared-text, .break-words, [dir="ltr"]').first();
-                        postText = await textEl.innerText({ timeout: 2000 }).catch(() => null);
+                    try {
+                        await page.waitForSelector('#job-details', { timeout: 5000 });
+                    } catch (e) {
+                        console.log('      ⚠️ Detail view timeout.');
                     }
 
-                    if (!postText || postText.replace(/\s/g, '').length < 30) continue;
+                    await randomDelay(1000, 2000); // Simulate reading
 
-                    // Normalize
-                    const textRaw = postText.slice(0, 800);
-                    const text = normalizeText(postText.slice(0, 800));
+                    // Extract Details
+                    const titleEl = await page.locator('.job-details-jobs-unified-top-card__job-title, h2.t-24').first();
+                    const companyEl = await page.locator('.job-details-jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__subtitle').first();
+                    const locationEl = await page.locator('.job-details-jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__workplace-type').first();
 
-                    // Check regex: job keywords + golang
-                    const jobMatch = /\b(fresher|freshers|intern|internship|entry\s*level|junior|hiring|job|graduate|software\s*developer)\b/i.test(text);
-                    const goMatch = /\b(golang|go\s*developer|go\s*backend|node\.?js)\b/i.test(text);
+                    const title = await titleEl.innerText().catch(() => 'Unknown Title');
+                    const company = await companyEl.innerText().catch(() => 'Unknown Company');
+                    let location = await locationEl.innerText().catch(() => 'Unknown Location');
 
-                    // Debug: show first 80 chars of each post
-                    console.log(`    [${i}] "${textRaw.slice(0, 80).replace(/\n/g, ' ')}..." job=${jobMatch} go=${goMatch}`);
+                    // Extract Description
+                    let description = '';
+                    const descEl = page.locator('#job-details');
+                    if (await descEl.count() > 0) {
+                        description = await descEl.innerText();
+                    }
 
-                    if (!jobMatch || !goMatch) continue;
+                    // Clean up fields
+                    const cleanTitle = title.trim();
+                    const cleanCompany = company.trim();
+                    location = location.trim();
 
-                    // Extract URN for correct URL
-                    const urn = await posts[i].getAttribute('data-urn').catch(() => null);
-                    const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}` : 'https://www.linkedin.com/feed';
+                    // URL - Current browser URL usually changes to the job ID, or we can get it from the card
+                    let jobUrl = page.url();
+                    // Try to get clean link from card if possible
+                    const linkEl = item.locator('a.job-card-container__link').first();
+                    const href = await linkEl.getAttribute('href').catch(() => null);
+                    if (href) {
+                        jobUrl = href.startsWith('http') ? href : `https://www.linkedin.com${href}`;
+                        jobUrl = jobUrl.split('?')[0]; // Remove query params
+                    }
 
-                    // Extract author name (simplified)
-                    const authorMatch = textRaw.match(/^([A-Za-z\s]{5,30})/);
-                    const author = authorMatch ? authorMatch[1].trim() : 'LinkedIn User';
+                    console.log(`      📝 Extracted: ${cleanTitle.slice(0, 30)}... @ ${cleanCompany}`);
 
-                    // Try to extract time text (e.g., "1d •")
-                    const timeMatch = textRaw.match(/(\d+[hdmw]\s*•)/);
-                    const rawTime = timeMatch ? timeMatch[1].replace('•', '').trim() + ' ago' : 'Recently';
+                    // --- FILTERING LOGIC ---
+                    const fullText = `${cleanTitle} ${description} ${location}`.toLowerCase();
 
-                    // Try basic location extraction
-                    const locMatch = text.match(/(?:location|📍)\s*:?\s*([^\n.,]+)/i);
-                    const rawLocation = locMatch ? locMatch[1].trim() : 'Remote/Global'; // Default to Remote if not found
+                    // 1. Keyword Check
+                    if (!CONFIG.keywordRegex.test(fullText)) {
+                        console.log(`      ❌ Filtered out: Missing Keyword (Golang)`);
+                        continue;
+                    }
 
-                    jobs.push({
-                        title: textRaw.slice(0, 100) + '...',
-                        description: textRaw.slice(0, 500),
-                        company: author.slice(0, 40),
-                        url: postUrl,
-                        location: rawLocation,
-                        source: 'LinkedIn (Posts)',
+                    // 2. Experience Check
+                    if (CONFIG.excludeRegex.test(fullText)) {
+                        console.log(`      ❌ Filtered out: Senior/Lead/Manager detected`);
+                        continue;
+                    }
+
+                    // 3. Location Filter (Strict: No Hanoi)
+                    const normalizedLoc = normalizeText(location);
+                    const normalizedDesc = normalizeText(description);
+
+                    // Combine location text for check
+                    const locationCheckText = normalizedLoc + " " + normalizedDesc;
+
+                    if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(locationCheckText)) {
+                        console.log(`      ❌ Filtered out: Location is Hanoi`);
+                        continue;
+                    }
+
+                    // Strict Location Preference (HCM / Can Tho)
+                    // If not Hanoi, we accept it, but we can tag it properly
+                    let finalLocation = 'Unknown';
+                    if (/\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(locationCheckText)) {
+                        finalLocation = 'HCM';
+                    } else if (/\b(can tho|cantho)\b/.test(locationCheckText)) {
+                        finalLocation = 'Can Tho';
+                    } else if (/\b(remote)\b/.test(locationCheckText)) {
+                        finalLocation = 'Remote'; // Accept remote
+                    } else {
+                        // If it's not Hanoi, and not HCM/Can Tho/Remote, but passed filters..
+                        // Maybe "Vietnam" general? Keep as Unknown or raw location
+                        finalLocation = location;
+                    }
+
+                    const job = {
+                        title: cleanTitle,
+                        company: cleanCompany,
+                        url: jobUrl,
+                        description: description.slice(0, 5000), // Cap description
+                        location: finalLocation,
+                        source: 'LinkedIn',
                         techStack: 'Golang',
-                        postedDate: rawTime,
-                        matchScore: 8
-                    });
+                        postedDate: 'Past month', // Hardcoded as per user request (filtered by URL)
+                        isFresher: true, // URL filters for fresher/entry
+                        matchScore: 0
+                    };
 
-                    console.log(`    ✅ [8] ${author.slice(0, 25)} - ${textRaw.slice(0, 40)}...`);
-                } catch (e) {
-                    // Skip
+                    job.matchScore = calculateMatchScore(job);
+
+                    if (job.matchScore >= 5) {
+                        console.log(`      ✅ Valid Job! Score: ${job.matchScore}`);
+                        jobs.push(job);
+                    } else {
+                        console.log(`      ❌ Low Score: ${job.matchScore}`);
+                    }
                 }
+
+            } catch (e) {
+                console.log(`      ⚠️ Error processing job ${i}: ${e.message}`);
+                await screenshotDebugger.capture(page, `linkedin_job_error_${i}`);
             }
-
-            await randomDelay(800, 1200);
-
-        } catch (error) {
-            console.error(`  ❌ Error: ${error.message.slice(0, 50)}`);
         }
+
+    } catch (error) {
+        console.error(`  ❌ LinkedIn Scrape Error: ${error.message}`);
+        await screenshotDebugger.capture(page, 'linkedin_fatal_error');
     }
 
-    const uniqueJobs = [...new Map(jobs.map(j => [j.description, j])).values()];
-    console.log(`\n  📊 LinkedIn Posts: Found ${uniqueJobs.length} unique job-related posts`);
-
+    const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
     return uniqueJobs;
 }
 
-async function createLinkedInContext(browser) {
-    const userAgent = getRandomUserAgent();
-    console.log(`  🎭 Using User-Agent: ${userAgent.slice(0, 50)}...`);
-
-    return await browser.newContext({
-        userAgent: userAgent,
-        viewport: { width: 1366, height: 768 },
-        locale: 'en-US',
-        timezoneId: 'Asia/Ho_Chi_Minh'
-    });
-}
-
-module.exports = { scrapeLinkedIn, createLinkedInContext };
+module.exports = { scrapeLinkedIn };

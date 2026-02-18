@@ -177,8 +177,8 @@ async function main() {
 
         // Scrape TopCV
         //if (shouldRun('topcv')) {
-            //const topcvJobs = await scrapeTopCV(page, reporter);
-            //allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
+        //const topcvJobs = await scrapeTopCV(page, reporter);
+        //allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
         //}
 
         // Scrape Twitter
@@ -188,10 +188,11 @@ async function main() {
         }
 
         // Scrape LinkedIn
-        // if (platform === 'all' || platform === 'linkedin') {
-        //     console.log('\n🔒 Starting LinkedIn scraper...');
-        //     // ... (LinkedIn logic remains commented out per original) 
-        // }
+        // Scrape LinkedIn
+        if (shouldRun('linkedin')) {
+            const linkedinJobs = await scrapeLinkedIn(page, reporter);
+            allRawJobs = allRawJobs.concat(linkedinJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+        }
 
         // Scrape Facebook
         if (shouldRun('facebook')) {
