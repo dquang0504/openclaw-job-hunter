@@ -3,11 +3,13 @@
  */
 
 const CONFIG = require('../config');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 const fs = require('fs');
 
 async function scrapeVercel(page, reporter) {
     console.log('📈 Checking Vercel Analytics...');
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     try {
         const targetUrl = CONFIG.vercelUrl || 'https://vercel.com/dashboard';
@@ -201,6 +203,7 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
                     console.log(`  ⚠️ Attempt ${attempt} failed: ${e.message}`);
                     if (attempt === maxRetries) {
                         console.error('  ❌ All retries failed for Vercel Scraper.');
+                        await screenshotDebugger.capture(page, 'vercel_retry_failed');
                         await reporter.sendError(`⚠️ Vercel Scraper Failed: ${e.message}`);
                     }
                 }
@@ -209,6 +212,11 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
 
     } catch (e) {
         console.error(`  ❌ Vercel Scrape Error: ${e.message}`);
+        if (e.message.includes('timeout') || e.message.includes('Timed out')) {
+            await screenshotDebugger.capture(page, 'vercel_timeout');
+        } else {
+            await screenshotDebugger.capture(page, 'vercel_error');
+        }
     }
 }
 
