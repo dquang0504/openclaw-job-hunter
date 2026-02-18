@@ -71,10 +71,10 @@ async function scrapeLinkedIn(page, reporter) {
             // Wait for job list
             console.log('    ⏳ Waiting for job list...');
             try {
-                await page.waitForSelector('.jobs-search-results-list', { timeout: 10000 });
+                // Wait for any list item to appear
+                await page.waitForSelector('li.scaffold-layout__list-item, .job-card-container', { timeout: 15000 });
             } catch (e) {
                 console.log('    ⚠️ Main list selector not found, trying fallback...');
-                // Sometimes it might show no results
                 if (await page.locator('h1.artdeco-empty-state__headline').count() > 0) {
                     console.log('    ⚠️ No jobs found for this keyword.');
                 }
@@ -203,6 +203,14 @@ async function scrapeLinkedIn(page, reporter) {
             await humanScroll(page, 5);
 
             const updateSelector = 'div.feed-shared-update-v2';
+
+            // Explicitly wait for posts to load
+            try {
+                await page.waitForSelector(updateSelector, { timeout: 15000 });
+            } catch (e) {
+                console.log('      ⚠️ Posts selector not found (might be no results).');
+            }
+
             const updates = await page.locator(updateSelector).all();
             console.log(`    📄 Found ${updates.length} potential posts for "${keyword}".`);
 
