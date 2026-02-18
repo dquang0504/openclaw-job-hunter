@@ -214,6 +214,149 @@ async function scrapeLinkedIn(page, reporter) {
             }
         }
 
+        // --- STEP 2: SCRAPE LINKEDIN POSTS ---
+        // URL provided by user (Latest Date Posted)
+        const POST_SEARCH_URL = 'https://www.linkedin.com/search/results/CONTENT/?keywords=fresher%20golang&origin=FACETED_SEARCH&sid=sYp&sortBy=%22date_posted%22';
+
+        console.log(`  📝 Visiting Post Search: ${POST_SEARCH_URL}`);
+        await page.goto(POST_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        await randomDelay(2000, 3000);
+        await humanScroll(page, 5); // Scroll to load feed
+
+        // Selectors
+        const postContainerSelector = 'div.update-components-update-v2__commentary';
+        // The container that holds the post usually is parent of commentary or similar
+        // Let's iterate over feed updates
+        const updateSelector = 'div.feed-shared-update-v2';
+
+        const updates = await page.locator(updateSelector).all();
+        console.log(`    📄 Found ${updates.length} potential posts in feed.`);
+
+        const maxPosts = Math.min(updates.length, 10);
+
+        for (let i = 0; i < maxPosts; i++) {
+            try {
+                const update = updates[i];
+
+                // 1. Check Time First (Optimization)
+                // Selector provided: span.update-components-actor__sub-description
+                const subDescEl = update.locator('span.update-components-actor__sub-description').first();
+                const subDescText = await subDescEl.innerText().catch(() => '');
+
+                // Extract time part (e.g. "9h •", "1d •")
+                // User requirement: "6h" or "6 giờ" or less.
+                // Regex for time format
+                const timeMatch = subDescText.match(/^(\d+)([hmgs]|h|m|g)(?:\s|•|$)/);
+                // Matches "9h", "10m", "6g" (hours/minutes/gio)
+
+                let isRecent = false;
+                let timeString = 'Unknown';
+
+                if (timeMatch) {
+                    const val = parseInt(timeMatch[1]);
+                    const unit = timeMatch[2]; // h, m, g, s
+                    timeString = timeMatch[0].replace('•', '').trim();
+
+                    if (unit === 'm' || unit === 's') {
+                        isRecent = true; // Minutes/Seconds always recent
+                    } else if (unit === 'h' || unit === 'g') {
+                        // Check <= 6 hours
+                        if (val <= 6) isRecent = true;
+                    }
+                    // Days (d) are excluded
+                } else if (subDescText.includes('now') || subDescText.includes('vừa xong')) {
+                    isRecent = true;
+                    timeString = 'Now';
+                }
+
+                if (!isRecent) {
+                    // console.log(`      Skipping old post: ${subDescText.slice(0, 20)}...`);
+                    continue;
+                }
+
+                console.log(`    🕒 Inspecting Recent Post (${timeString})...`);
+
+                // 2. Expand Content (Click "...more")
+                const moreBtn = update.locator('button.feed-shared-inline-show-more-text__see-more-less-toggle').first();
+                if (await moreBtn.isVisible()) {
+                    await moreBtn.click().catch(() => { });
+                    await page.waitForTimeout(500);
+                }
+
+                // 3. Extract Content
+                const contentEl = update.locator('div.feed-shared-update-v2__description').first();
+                const contentText = await contentEl.innerText().catch(() => '');
+
+                if (contentText.length < 50) continue; // Skip empty/short
+
+                // 4. Extract Author/Company (from Actor header)
+                const actorNameEl = update.locator('.update-components-actor__name').first();
+                const authorName = await actorNameEl.innerText().catch(() => 'LinkedIn User');
+
+                // 5. Extract URL (URN)
+                const urn = await update.getAttribute('data-urn').catch(() => null);
+                let postUrl = page.url();
+                if (urn) {
+                    // urn:li:activity:7123... -> https://www.linkedin.com/feed/update/urn:li:activity:7123...
+                    postUrl = `https://www.linkedin.com/feed/update/${urn}`;
+                }
+
+                console.log(`      📝 Post by ${authorName}: ${contentText.slice(0.40)}...`);
+
+                // 6. Filtering
+                const fullText = `${authorName} ${contentText}`.toLowerCase();
+
+                // Keyword Check
+                if (!CONFIG.keywordRegex.test(fullText)) {
+                    console.log(`      ❌ Filtered out: Missing Keyword`);
+                    continue;
+                }
+
+                // Senior/High Exp Check
+                if (CONFIG.excludeRegex.test(fullText)) {
+                    console.log(`      ❌ Filtered out: Senior/Lead`);
+                    continue;
+                }
+
+                // Location Check (Strict No Hanoi)
+                // Note: Post content location is informal. We rely on text regex.
+                if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(fullText)) {
+                    console.log(`      ❌ Filtered out: Location is Hanoi`);
+                    continue;
+                }
+
+                // For Posts, we don't strictly require HCM keyword because users might not tag it clearly.
+                // But user context implies strict rule? 
+                // "Location thường nó để trong post luôn á... AI validator sẽ detect"
+                // So we pass it to AI validator if it passes keyword check + No Hanoi check.
+
+                const job = {
+                    title: `[Post] ${authorName} is hiring`, // Placeholder title
+                    company: authorName,
+                    url: postUrl,
+                    description: contentText.slice(0, 5000),
+                    location: 'Unknown', // Let AI detect
+                    source: 'LinkedIn (Post)',
+                    techStack: 'Golang',
+                    postedDate: timeString, // "4h", "Now"
+                    isFresher: true, // From keyword search
+                    matchScore: 0
+                };
+
+                // Pre-calc score
+                job.matchScore = calculateMatchScore(job);
+
+                if (job.matchScore >= 5) {
+                    console.log(`      ✅ Valid Post! Score: ${job.matchScore}`);
+                    jobs.push(job);
+                }
+
+            } catch (e) {
+                console.log(`      ⚠️ Error processing post ${i}: ${e.message}`);
+                await screenshotDebugger.capture(page, `linkedin_post_error_${i}`);
+            }
+        }
     } catch (error) {
         console.error(`  ❌ LinkedIn Scrape Error: ${error.message}`);
         await screenshotDebugger.capture(page, 'linkedin_fatal_error');
