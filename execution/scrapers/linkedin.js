@@ -28,10 +28,20 @@ async function scrapeLinkedIn(page, reporter) {
     const jobs = [];
     const context = page.context();
 
-    // --- WARM UP PHASE ---
+    // --- WARM UP PHASE & LOGIN CHECK ---
     try {
         console.log('🏠 Navigating to LinkedIn Feed for warm-up...');
         await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Verify Login
+        try {
+            await page.waitForSelector('#global-nav', { timeout: 10000 });
+            console.log('    ✅ Login confirmed (Global Nav found).');
+        } catch (e) {
+            console.error('    ❌ Login Verification Failed! Cookies might be invalid.');
+            await screenshotDebugger.captureAndSend(page, 'linkedin_login_failed');
+            throw new Error('LinkedIn Login Failed - navigation bar not found');
+        }
 
         // Randomize warm-up duration (2-4s)
         const warmUpDuration = 2000 + Math.random() * 2000;
@@ -43,6 +53,7 @@ async function scrapeLinkedIn(page, reporter) {
             await page.waitForTimeout(1000 + Math.random() * 1000);
         }
     } catch (e) {
+        if (e.message.includes('Login Failed')) throw e; // Re-throw fatal login error
         console.log('⚠️ Warm-up failed (non-critical):', e.message);
     }
     // --- END WARM UP ---
