@@ -71,10 +71,9 @@ async function scrapeLinkedIn(page, reporter) {
             const encodedKeyword = encodeURIComponent(keyword);
 
             // --- STEP 1: JOB SEARCH ---
-            // Construct dynamic Job Search URL (Past Month: f_TPR=r2592000)
-            // Note: f_E (Experience) might vary but let's stick to user's general filter or just keyword
-            // User's example had f_E=1,2,3 (Intern, Entry, Associate)
-            const JOB_SEARCH_URL = `https://www.linkedin.com/jobs/search/?keywords=${encodedKeyword}&f_TPR=r2592000&f_E=1%2C2%2C3&origin=JOB_SEARCH_PAGE_JOB_FILTER&spellCorrectionEnabled=true`;
+            // Construct dynamic Job Search URL based on user's request
+            // Added f_TPR=r2592000 (Past Month) to ensure relevance
+            const JOB_SEARCH_URL = `https://www.linkedin.com/jobs/search/?f_E=1%2C2%2C3&keywords=${encodedKeyword}&origin=JOB_SEARCH_PAGE_JOB_FILTER&f_TPR=r2592000`;
 
             console.log(`  🌐 Visiting Job Search: ${JOB_SEARCH_URL}`);
             await page.goto(JOB_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -207,7 +206,7 @@ async function scrapeLinkedIn(page, reporter) {
             }
 
             // --- STEP 2: POST SEARCH ---
-            const POST_SEARCH_URL = `https://www.linkedin.com/search/results/CONTENT/?keywords=${encodedKeyword}&origin=FACETED_SEARCH&sortBy=%22date_posted%22`;
+            const POST_SEARCH_URL = `https://www.linkedin.com/search/results/CONTENT/?keywords=${encodedKeyword}&origin=FACETED_SEARCH&sid=p8A&sortBy=%22date_posted%22`;
             console.log(`  📝 Visiting Post Search: ${POST_SEARCH_URL}`);
 
             await page.goto(POST_SEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
