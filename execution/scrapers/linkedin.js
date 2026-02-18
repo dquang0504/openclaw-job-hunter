@@ -75,6 +75,7 @@ async function scrapeLinkedIn(page, reporter) {
                 await page.waitForSelector('li.scaffold-layout__list-item, .job-card-container', { timeout: 15000 });
             } catch (e) {
                 console.log('    ⚠️ Main list selector not found, trying fallback...');
+                await screenshotDebugger.capture(page, 'linkedin_job_list_missing');
                 if (await page.locator('h1.artdeco-empty-state__headline').count() > 0) {
                     console.log('    ⚠️ No jobs found for this keyword.');
                 }
@@ -209,6 +210,7 @@ async function scrapeLinkedIn(page, reporter) {
                 await page.waitForSelector(updateSelector, { timeout: 15000 });
             } catch (e) {
                 console.log('      ⚠️ Posts selector not found (might be no results).');
+                await screenshotDebugger.capture(page, 'linkedin_post_list_missing');
             }
 
             const updates = await page.locator(updateSelector).all();
