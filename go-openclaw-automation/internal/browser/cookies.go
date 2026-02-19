@@ -63,7 +63,7 @@ func (c Cookie) ToPlayWright() playwright.OptionalCookie {
 		pwCookie.SameSite = playwright.SameSiteAttributeLax
 	case "Strict":
 		pwCookie.SameSite = playwright.SameSiteAttributeStrict
-	case "None":
+	case "None", "no_restriction", "unspecified":
 		pwCookie.SameSite = playwright.SameSiteAttributeNone
 	}
 

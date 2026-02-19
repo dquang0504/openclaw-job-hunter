@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"go-openclaw-automation/internal/browser"
 	"go-openclaw-automation/internal/config"
+	"go-openclaw-automation/internal/dedup"
 	"go-openclaw-automation/internal/filter"
 	"go-openclaw-automation/internal/scraper"
+	"go-openclaw-automation/internal/scraper/itviec"
 	"go-openclaw-automation/internal/scraper/topcv"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/playwright-community/playwright-go"
 )
 
 func main() {
@@ -36,15 +40,23 @@ func main() {
 	defer pwManager.Close()
 
 	//load cookies
-	cookiePath := filepath.Join("..", ".cookies", "cookies-facebook.json")
-	log.Printf("🍪 Loading cookies from: %s", cookiePath)
-	cookies, err := browser.LoadCookies(cookiePath)
-	if err != nil {
-		log.Printf("⚠️ Warning: Could not load cookies: %v. Continuing without cookies.", err)
+	cookieFiles := map[string]string{
+		"topcv": filepath.Join(cfg.CookiesPath, "cookies-topcv.json"),
+		"itviec": filepath.Join(cfg.CookiesPath, "cookies-itviec.json"),
 	}
-
+	var allCookies []playwright.OptionalCookie
+	for name, cookieFile := range cookieFiles {
+		cookies, err := browser.LoadCookies(cookieFile)
+		if err != nil {
+			log.Printf("⚠️ Could not load %s cookies: %v. Continuing.", name, err)
+			continue
+		}
+		log.Printf("🍪 Loaded %s cookies (%d)", name, len(cookies))
+		allCookies = append(allCookies, cookies...)
+	}
+	
 	//create new browser context with cookies
-	browserCtx, err := pwManager.NewContext(cookies)
+	browserCtx, err := pwManager.NewContext(allCookies)
 	if err != nil {
 		log.Fatalf("❌ Failed to create browser context: %v", err)
 	}
@@ -59,6 +71,7 @@ func main() {
 	//initialize scrapers
 	scrapers := []scraper.Scraper{
 		topcv.NewTopCVScraper(cfg),
+		itviec.NewITViecScraper(cfg),
 	}
 
 	//run scrapers loop
@@ -93,8 +106,26 @@ func main() {
 
 	log.Printf("\n📦 Total jobs collected: %d", len(allJobs))
 
+	//dedup jobs
+	jobCache := dedup.NewJobCache(cfg.CachePath)
+	var unseenJobs []scraper.Job
+	for _, job := range allJobs {
+		if !jobCache.IsSeen(job.URL) {
+			unseenJobs = append(unseenJobs, job)
+		}
+	}
+	log.Printf("🔍 Deduplication: %d total -> %d unseen jobs", len(allJobs), len(unseenJobs))
+	// Mark all unseen jobs as seen (Telegram will be added later)
+	// When Telegram is integrated, only mark jobs that were actually sent
+	var unseenURLs []string
+	for _, job := range unseenJobs {
+		unseenURLs = append(unseenURLs, job.URL)
+	}
+	jobCache.Add(unseenURLs)
+	log.Printf("💾 Marked %d jobs as seen", len(unseenURLs))
+
 	//save results
-	saveJobs(allJobs)
+	saveJobs(unseenJobs)
 
 	log.Println("🏁 Execution finished.")
 }

@@ -2,11 +2,10 @@ package filter
 
 import (
 	"go-openclaw-automation/internal/scraper"
-	"strings"
 )
 
 func ShouldIncludeJob(job scraper.Job) bool {
-	text := strings.ToLower(job.Title + " " + job.Description)
+	text := normalizeText(job.Title + " " + job.Description)
 	//must contain golang/go
 	if !keywordRegex.MatchString(text){
 		return false

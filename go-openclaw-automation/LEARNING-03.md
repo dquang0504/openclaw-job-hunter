@@ -736,3 +736,98 @@ Some job boards return full ISO timestamp. Code extracts date part:
 Go uses **reference time**: `Mon Jan 2 15:04:05 MST 2006`
 - `2006` = year, `01` = month, `02` = day
 - This is Go's way to define date format (unlike Python's `%Y-%m-%d`)
+
+---
+
+## 🕷️ **ITVIEC SCRAPER SPECIFICS**
+
+### ❓ **TODO 25: Context Cancellation Check**
+
+**Context:** `internal/scraper/itviec/scraper.go:50`
+
+**Question:**
+Tại sao ở đây có check context cancellation nữa vậy? Check để làm gì? Tại sao bên scraper TopCV của Go tôi không thấy?
+
+**Answer:**
+
+```go
+if ctx.Err() != nil {
+    return jobs, ctx.Err()
+}
+```
+
+1.  **Mục đích:** Để dừng scraper **NGAY LẬP TỨC** khi có tín hiệu hủy (timeout hoặc user bấm Ctrl+C).
+2.  **Tại sao cần?** Vòng lặp `keywords` x `locations` có thể chạy rất lâu (mỗi URL mất >20s vì sleep 15s). Nếu không check, scraper sẽ tiếp tục chạy vô ích dù context đã `Done` (hết giờ).
+3.  **Tại sao TopCV không thấy?** Có thể do TopCV scraper đơn giản hơn hoặc bị sót (best practice là **NÊN** check đầu mỗi vòng lặp tốn thời gian).
+
+### ❓ **TODO 26: Frame Assignment inside Loop**
+
+**Context:** `internal/scraper/itviec/scraper.go:146`
+
+**Question:**
+Ủa sao chỗ này gán `turnstileFrame = f` để chi vậy?
+
+**Answer:**
+
+```go
+var turnstileFrame playwright.Frame // 1. Khai báo biến ngoài loop
+for _, f := range frames {
+    if ... {
+        turnstileFrame = f // 2. Gán giá trị tìm được
+        break              // 3. Thoát loop
+    }
+}
+// 4. Dùng biến turnstileFrame ở đây
+if turnstileFrame != nil { ... }
+```
+
+- `frames` là một danh sách (slice). Ta cần **TÌM** frame chứa Cloudflare trong danh sách đó.
+- Khi tìm thấy (trong `if`), ta phải gán nó vào một biến (`turnstileFrame`) đã khai báo bên ngoài để có thể sử dụng biến đó sau khi vòng lặp kết thúc.
+
+### ❓ **TODO 27: URL Clean Params Logic**
+
+**Context:** `internal/scraper/itviec/scraper.go:258`
+
+**Question:**
+Giải thích đoạn `strings.Index` rồi `fullURL[:idx]` là sao?
+
+**Answer:**
+
+```go
+fullURL := page.URL() // Giả sử: "https://itviec.com/job/abc?source=topdev&utm=123"
+if idx := strings.Index(fullURL, "?"); idx != -1 {
+    fullURL = fullURL[:idx]
+}
+```
+
+1.  **`strings.Index(fullURL, "?")`**: Tìm vị trí (index) của dấu hỏi chấm `?` đầu tiên. Trả về `-1` nếu không tìm thấy.
+2.  **`fullURL[:idx]`**: Cắt chuỗi từ đầu (`0`) đến ngay trước vị trí `idx`.
+3.  **Kết quả:** `https://itviec.com/job/abc` (Đã loại bỏ toàn bộ query parameters phía sau).
+4.  **Mục đích:** Để deduplication (loại trùng) tốt hơn, vì các tham số tracking (`utm_...`, `source=...`) làm URL trông khác nhau nhưng thực chất là cùng 1 job.
+
+### ❓ **TODO 28: Headless Browser Explained**
+
+**Context:** `internal/browser/playwright.go:29`
+
+**Question:**
+Giải thích `Headless` trong chromium? Nếu không set (nil), false, true thì ra sao? Ý nghĩa là gì?
+
+**Answer:**
+
+**Headless Mode** là chế độ chạy trình duyệt **không có giao diện người dùng** (không cửa sổ, không thanh công cụ). Nó chạy ngầm trong background.
+
+1.  **`Headless: playwright.Bool(true)`**:
+    -   **Chạy ngầm** (Không hiện cửa sổ).
+    -   **Ưu điểm:** Nhanh hơn, tốn ít tài nguyên (RAM/CPU) hơn. Dùng cho server/CI (nơi không có màn hình).
+    -   **Nhược điểm:** Khó debug visually, một số trang web detect robot dễ hơn.
+
+2.  **`Headless: playwright.Bool(false)`**:
+    -   **Hiện giao diện** (Mở cửa sổ Chrome lên).
+    -   **Ưu điểm:** Dễ debug (thấy nó click gì), bypass anti-bot tốt hơn (vẽ giao diện thật).
+    -   **Nhược điểm:** Chậm hơn, tốn tài nguyên. Chỉ chạy được trên OS có giao diện (Desktop).
+
+3.  **`Headless: nil` (Default)**:
+    -   Thường mặc định là `true` (Headless).
+
+**Tại sao ta set `false`?**
+Để debug dễ dàng hơn và **bypass detection** tốt hơn (TopCV/ITViec cấm bot headless gắt hơn). Khi deploy lên server (CI/CD), ta thường đổi lại thành `true`.
