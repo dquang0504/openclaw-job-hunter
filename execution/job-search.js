@@ -190,10 +190,10 @@ async function main() {
 
         // Scrape LinkedIn
         // Scrape LinkedIn
-        if (shouldRun('linkedin')) {
-            const linkedinJobs = await scrapeLinkedIn(page, reporter);
-            allRawJobs = allRawJobs.concat(linkedinJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-        }
+        // if (shouldRun('linkedin')) {
+        //     const linkedinJobs = await scrapeLinkedIn(page, reporter);
+        //     allRawJobs = allRawJobs.concat(linkedinJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
+        // }
 
         // Scrape Facebook
         if (shouldRun('facebook')) {

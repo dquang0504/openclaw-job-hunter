@@ -172,17 +172,30 @@ async function scrapeLinkedIn(page, reporter) {
                         const title = await titleEl.innerText().catch(() => 'Unknown Title');
                         const company = await companyEl.innerText().catch(() => 'Unknown Company');
 
-                        // Description - Support [data-testid="expandable-text-box"] per user request
-                        let description = '';
-                        const descEl = jobPage.locator('[data-testid="expandable-text-box"], #job-details, .jobs-description__content').first();
+                        // Expand Description (User Request: Click "Show more" button)
+                        try {
+                            const showMoreBtn = jobPage.locator('button[data-testid="expandable-text-button"]');
+                            if (await showMoreBtn.isVisible()) {
+                                // Button itself has pointer-events: none, so we force click or click the span
+                                await showMoreBtn.click({ force: true });
+                                await jobPage.waitForTimeout(500); // Allow text to expand
+                            }
+                        } catch (e) {
+                            console.log('      ⚠️ Could not click "Show more":', e.message);
+                        }
 
-                        // If expandable, try to ensure it's expanded? Usually fully loaded in this view.
+                        // Description - Prioritize [data-testid="expandable-text-box"] per user request
+                        let description = '';
+                        const descEl = jobPage.locator('[data-testid="expandable-text-box"]').first();
+
                         if (await descEl.count() > 0) {
                             description = await descEl.innerText();
                         } else {
-                            // Fallback to older selectors
-                            const oldDescEl = jobPage.locator('.jobs-description-content__text').first();
-                            if (await oldDescEl.count() > 0) description = await oldDescEl.innerText();
+                            // Fallback to other selectors
+                            const fallbackEl = jobPage.locator('#job-details, .jobs-description__content, .jobs-description-content__text').first();
+                            if (await fallbackEl.count() > 0) {
+                                description = await fallbackEl.innerText();
+                            }
                         }
 
                         const cleanTitle = title.trim();
