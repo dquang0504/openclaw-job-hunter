@@ -127,18 +127,32 @@ async function scrapeLinkedIn(page, reporter) {
                     const jobPage = await context.newPage();
                     try {
                         // console.log(`      🚀 Opening Job ${index + 1}: ${url}`);
-                        await jobPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                        await jobPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-                        // Wait for content
+                        // Wait for content - Fail Fast if blocked or not loading
                         try {
-                            await jobPage.waitForSelector('.job-details-jobs-unified-top-card__primary-description-container', { timeout: 10000 });
-                        } catch (e) { /* Ignore */ }
+                            await jobPage.waitForSelector('.job-details-jobs-unified-top-card__primary-description-container, .job-details-jobs-unified-top-card__job-title', { timeout: 5000 });
+                        } catch (e) {
+                            console.log(`      ⚠️ Job details not found for ${url}`);
+                            // Check if we hit a wall
+                            if (await jobPage.locator('.auth-wall__content, #join-form, .join-form').count() > 0) {
+                                console.log('      ⚠️ Hit Auth Wall / Login Form');
+                            }
+                            await screenshotDebugger.captureAndSend(jobPage, `linkedin_job_load_fail_${Date.now()}`);
+                            return null; // Skip this job
+                        }
 
                         // Extract Details (Detail Page Selectors)
                         const titleEl = await jobPage.locator('.job-details-jobs-unified-top-card__job-title, h1').first();
                         const companyEl = await jobPage.locator('.job-details-jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__subtitle').first();
 
-                        const primaryDescEl = jobPage.locator('.job-details-jobs-unified-top-card__primary-description-container').first();
+                        // Try primary description (User's observation: p tag with 'ago' or structure)
+                        let primaryDescEl = jobPage.locator('.job-details-jobs-unified-top-card__primary-description-container').first();
+
+                        // Fallback: User's observed structure (p tag containing '·' and time indicators)
+                        if (await primaryDescEl.count() === 0) {
+                            primaryDescEl = jobPage.locator('p').filter({ hasText: /·.*(ago|vừa|trước)/ }).first();
+                        }
                         let locationRaw = 'Unknown Location';
                         let postedDate = 'Past month';
 
@@ -158,9 +172,18 @@ async function scrapeLinkedIn(page, reporter) {
                         const title = await titleEl.innerText().catch(() => 'Unknown Title');
                         const company = await companyEl.innerText().catch(() => 'Unknown Company');
 
+                        // Description - Support [data-testid="expandable-text-box"] per user request
                         let description = '';
-                        const descEl = jobPage.locator('#job-details, .jobs-description__content');
-                        if (await descEl.count() > 0) description = await descEl.innerText();
+                        const descEl = jobPage.locator('[data-testid="expandable-text-box"], #job-details, .jobs-description__content').first();
+
+                        // If expandable, try to ensure it's expanded? Usually fully loaded in this view.
+                        if (await descEl.count() > 0) {
+                            description = await descEl.innerText();
+                        } else {
+                            // Fallback to older selectors
+                            const oldDescEl = jobPage.locator('.jobs-description-content__text').first();
+                            if (await oldDescEl.count() > 0) description = await oldDescEl.innerText();
+                        }
 
                         const cleanTitle = title.trim();
                         const cleanLocation = locationRaw.trim();
