@@ -296,7 +296,7 @@ async function scrapeLinkedIn(page, reporter) {
                         const val = parseInt(timeMatch[1]);
                         const unit = timeMatch[2];
                         timeString = timeMatch[0].replace('•', '').trim();
-                        if (['m', 's'].includes(unit) || (['h', 'g'].includes(unit) && val <= 6)) {
+                        if (['m', 's'].includes(unit) || (['h', 'g'].includes(unit) && val <= 8)) { // Updated to 8h
                             isRecent = true;
                         }
                     } else if (subDescText.includes('now') || subDescText.includes('vừa xong')) {
@@ -304,12 +304,28 @@ async function scrapeLinkedIn(page, reporter) {
                         timeString = 'Now';
                     }
 
-                    if (!isRecent) continue;
+                    // Fallback to update-components-actor__sub-description structure if main check fails
+                    if (!isRecent) {
+                        const preciseTimeEl = update.locator('.update-components-actor__sub-description span[aria-hidden="true"]').first();
+                        const preciseTimeText = await preciseTimeEl.innerText().catch(() => '');
+                        if (preciseTimeText.match(/(\d+)([hm])\s*•/)) {
+                            // Re-evaluate with this text
+                            const pMatch = preciseTimeText.match(/(\d+)([hm])/);
+                            if (pMatch) {
+                                const pVal = parseInt(pMatch[1]);
+                                const pUnit = pMatch[2];
+                                if (pUnit === 'm' || (pUnit === 'h' && pVal <= 8)) isRecent = true;
+                            }
+                        }
+                    }
 
                     if (!isRecent) continue;
 
-                    // Expand Content (New Selector)
-                    const moreBtn = update.locator('button[data-testid="expandable-text-button"]').first();
+                    if (!isRecent) continue;
+
+                    // Expand Content (Updated Selector)
+                    // The button class often contains 'feed-shared-inline-show-more-text__see-more-less-toggle'
+                    const moreBtn = update.locator('button.feed-shared-inline-show-more-text__see-more-less-toggle').first();
                     if (await moreBtn.isVisible()) {
                         try {
                             // console.log('      Trying to expand post content...');
@@ -318,12 +334,15 @@ async function scrapeLinkedIn(page, reporter) {
                         } catch (e) { /* Ignore click error */ }
                     }
 
-                    const contentEl = update.locator('div.feed-shared-update-v2__description').first();
-                    const contentText = await contentEl.innerText().catch(() => '');
+                    const contentEl = update.locator('div.feed-shared-update-v2__description, .update-components-text').first();
+                    let contentText = await contentEl.innerText().catch(() => '');
 
                     if (contentText.length < 50) continue;
 
-                    const actorNameEl = update.locator('.update-components-actor__name, span.update-components-actor__title, a.update-components-actor__meta-link span[dir="ltr"]').first();
+                    if (contentText.length < 50) continue;
+
+                    // Actor Name specific selector based on user structure
+                    const actorNameEl = update.locator('.update-components-actor__title span[dir="ltr"] span[aria-hidden="true"]').first();
                     const authorName = await actorNameEl.innerText().catch(() => 'LinkedIn User');
 
                     // Create a meaningful title from content
