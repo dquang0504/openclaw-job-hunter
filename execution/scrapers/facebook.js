@@ -412,51 +412,49 @@ async function scrapeFacebook(page, reporter) {
                         }
                     }
 
-                }
-
                     // Determine Location (Updated Logic: Hanoi allowed if valid location also exists)
-                    const cleanText = normalizeText(bodyText);
-                const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanText);
-                const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanText);
-                const isCanTho = /\b(can tho|cantho)\b/.test(cleanText);
-                const isRemote = /\b(remote)\b/.test(cleanText);
+                    // (cleanText is already defined above)
+                    const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanText);
+                    const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanText);
+                    const isCanTho = /\b(can tho|cantho)\b/.test(cleanText);
+                    const isRemote = /\b(remote)\b/.test(cleanText);
 
-                // 1. Strict Exclusion: Hanoi ONLY
-                if (isHanoi && !isHCM && !isCanTho && !isRemote) {
-                    console.log(`      ❌ Filtered out: Location is Hanoi (and no others)`);
-                    continue;
+                    // 1. Strict Exclusion: Hanoi ONLY
+                    if (isHanoi && !isHCM && !isCanTho && !isRemote) {
+                        console.log(`      ❌ Filtered out: Location is Hanoi (and no others)`);
+                        continue;
+                    }
+
+                    // 2. Assign Location
+                    if (isHCM) job.location = 'HCM';
+                    else if (isCanTho) job.location = 'Can Tho';
+                    else if (isRemote) job.location = 'Remote';
+                    // Else: Unknown (Keep)
+
+                    // Match Score
+                    job.matchScore = calculateMatchScore(job);
+
+                    console.log(`      ✅ Valid Job Found! Score: ${job.matchScore}`);
+                    jobs.push(job);
+                    validPostsInGroup++;
+
+                } catch (e) {
+                    console.log(`      ⚠️ Error processing detail page: ${e.message}`);
+                    await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
+                } finally {
+                    if (detailPage) await detailPage.close();
+                    await randomDelay(500, 1000); // Optimized wait
                 }
-
-                // 2. Assign Location
-                if (isHCM) job.location = 'HCM';
-                else if (isCanTho) job.location = 'Can Tho';
-                else if (isRemote) job.location = 'Remote';
-                // Else: Unknown (Keep)
-
-                // Match Score
-                job.matchScore = calculateMatchScore(job);
-
-                console.log(`      ✅ Valid Job Found! Score: ${job.matchScore}`);
-                jobs.push(job);
-                validPostsInGroup++;
-
-            } catch (e) {
-                console.log(`      ⚠️ Error processing detail page: ${e.message}`);
-                await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
-            } finally {
-                if (detailPage) await detailPage.close();
-                await randomDelay(500, 1000); // Optimized wait
             }
-        }
 
         } catch (error) {
-        console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
-        await screenshotDebugger.capture(page, 'fb_group_search_error');
+            console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
+            await screenshotDebugger.capture(page, 'fb_group_search_error');
+        }
     }
-}
 
-const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-return uniqueJobs;
+    const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
+    return uniqueJobs;
 }
 
 module.exports = { scrapeFacebook };
