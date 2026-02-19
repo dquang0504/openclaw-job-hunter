@@ -220,6 +220,37 @@ async function scrapeFacebook(page, reporter) {
                 }
                 // --- TIMESTAMP EXTRACTION END ---
 
+                // --- EARLY CONTENT CHECK (OPTIMIZATION) ---
+                let earlyText = '';
+                try {
+                    earlyText = await post.innerText();
+                    const cleanEarlyText = normalizeText(earlyText);
+
+                    // 1. Check Exclusions (Senior/Manager/etc)
+                    if (CONFIG.excludeRegex.test(cleanEarlyText)) {
+                        console.log(`      ❌ [Early] Filtered out: Senior/Lead/Manager detected`);
+                        continue;
+                    }
+
+                    // 2. Check Location (Optimized)
+                    // Rule: If Hanoi is present, ONLY exclude if no other valid location (HCM/Can Tho/Remote) is found.
+                    // If HCM + Hanoi -> Valid (Multiple locations).
+                    const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanEarlyText);
+                    const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanEarlyText);
+                    const isCanTho = /\b(can tho|cantho)\b/.test(cleanEarlyText);
+                    const isRemote = /\b(remote)\b/.test(cleanEarlyText);
+
+                    if (isHanoi && !isHCM && !isCanTho && !isRemote) {
+                        console.log(`      ❌ [Early] Filtered out: Location is Hanoi (and no others)`);
+                        continue;
+                    }
+
+                    // Note: We don't check for 'Golang' keyword here strictly because it might be hidden in "See more..."
+                } catch (e) {
+                    // Ignore errors, proceed to deep scrape
+                }
+                // --- END EARLY CHECK ---
+
                 let postUrl = '';
                 try {
                     // Try to find permalink in standard locations
@@ -381,61 +412,51 @@ async function scrapeFacebook(page, reporter) {
                         }
                     }
 
-                    // Determine Location (Strict Restriction: HCM & Can Tho only)
-                    // 1. Exclude Hanoi immediately
-                    if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanText)) {
-                        console.log(`      ❌ Filtered out: Location is Hanoi`);
-                        continue;
-                    }
-
-                    // 2. Check for Allowed Locations
-                    let locationValid = false;
-                    if (/\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanText)) {
-                        job.location = 'HCM';
-                        locationValid = true;
-                    } else if (/\b(can tho|cantho)\b/.test(cleanText)) {
-                        job.location = 'Can Tho';
-                        locationValid = true;
-                    } else if (/\b(remote)\b/.test(cleanText)) {
-                        job.location = 'Remote';
-                        // locationValid = true; // Uncomment if Remote is allowed. User said "match with tphcm or can tho". Assuming Remote is OK or needs explicit filter?
-                        // User said "match with tphcm or can tho", but existing code had Remote. 
-                        // Constraint: "only want location receive keywords match with ho chi minh or can tho, ... remove Hanoi".
-                        // I will treat Remote as valid for now unless strictly forbidden, but prioritize city check. 
-                        // Actually, user said: "only want location receive keywords match with ho chi minh or can tho".
-                        // I'll keep Remote as valid but optional, if not matched, it's Unknown. 
-                        // Wait, if it's "Unknown" (no city keyword), should we keep it? 
-                        // Usually safe to keep "Unknown" if it's not explicitly Hanoi.
-                    }
-
-                    // Strict mode: If "Hanoi" -> Removed.
-                    // If "HCM" or "Can Tho" -> Set.
-                    // If no location keyword -> "Unknown" (Keep).
-
-                    // Match Score
-                    job.matchScore = calculateMatchScore(job);
-
-                    console.log(`      ✅ Valid Job Found! Score: ${job.matchScore}`);
-                    jobs.push(job);
-                    validPostsInGroup++;
-
-                } catch (e) {
-                    console.log(`      ⚠️ Error processing detail page: ${e.message}`);
-                    await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
-                } finally {
-                    if (detailPage) await detailPage.close();
-                    await randomDelay(500, 1000); // Optimized wait
                 }
+
+                    // Determine Location (Updated Logic: Hanoi allowed if valid location also exists)
+                    const cleanText = normalizeText(bodyText);
+                const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanText);
+                const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanText);
+                const isCanTho = /\b(can tho|cantho)\b/.test(cleanText);
+                const isRemote = /\b(remote)\b/.test(cleanText);
+
+                // 1. Strict Exclusion: Hanoi ONLY
+                if (isHanoi && !isHCM && !isCanTho && !isRemote) {
+                    console.log(`      ❌ Filtered out: Location is Hanoi (and no others)`);
+                    continue;
+                }
+
+                // 2. Assign Location
+                if (isHCM) job.location = 'HCM';
+                else if (isCanTho) job.location = 'Can Tho';
+                else if (isRemote) job.location = 'Remote';
+                // Else: Unknown (Keep)
+
+                // Match Score
+                job.matchScore = calculateMatchScore(job);
+
+                console.log(`      ✅ Valid Job Found! Score: ${job.matchScore}`);
+                jobs.push(job);
+                validPostsInGroup++;
+
+            } catch (e) {
+                console.log(`      ⚠️ Error processing detail page: ${e.message}`);
+                await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
+            } finally {
+                if (detailPage) await detailPage.close();
+                await randomDelay(500, 1000); // Optimized wait
             }
+        }
 
         } catch (error) {
-            console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
-            await screenshotDebugger.capture(page, 'fb_group_search_error');
-        }
+        console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
+        await screenshotDebugger.capture(page, 'fb_group_search_error');
     }
+}
 
-    const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-    return uniqueJobs;
+const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
+return uniqueJobs;
 }
 
 module.exports = { scrapeFacebook };
