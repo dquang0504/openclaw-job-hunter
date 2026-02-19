@@ -168,6 +168,7 @@ async function main() {
     }
 
     const page = await context.newPage();
+    const seenJobs = loadSeenJobs(); // Pre-load seen jobs for optimization
     let allRawJobs = [];  // Raw jobs before AI validation
 
     try {
@@ -196,7 +197,7 @@ async function main() {
 
         // Scrape Facebook
         if (shouldRun('facebook')) {
-            const fbJobs = await scrapeFacebook(page, reporter);
+            const fbJobs = await scrapeFacebook(page, reporter, seenJobs);
             allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
         }
 
@@ -271,7 +272,7 @@ async function main() {
         // STEP 2: DEDUPLICATION (Filter BEFORE AI to save tokens)
         // =====================================================================
 
-        const seenJobs = loadSeenJobs();
+        // const seenJobs = loadSeenJobs(); // Moved to start of execution
         // Filter out jobs already seen
         let unseenJobs = allRawJobs.filter(job => !seenJobs.has(job.url));
 

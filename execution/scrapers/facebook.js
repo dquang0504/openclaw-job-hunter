@@ -17,7 +17,7 @@ const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\
  * @param {import('playwright').Page} page 
  * @param {import('../lib/telegram')} reporter 
  */
-async function scrapeFacebook(page, reporter) {
+async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     console.log('📘 Searching Facebook Groups (Authenticated)...');
 
     // Ensure stealth settings are active
@@ -278,6 +278,14 @@ async function scrapeFacebook(page, reporter) {
                 }
 
                 if (processedUrls.has(postUrl)) continue;
+
+                // GLOBAL DEDUP CHECK
+                if (seenJobs.has(postUrl)) {
+                    // console.log(`      ⏩ Skipped (Global Dedup): ${postUrl}`);
+                    processedUrls.add(postUrl); // Mark processed to avoid re-checking in same run
+                    continue;
+                }
+
                 processedUrls.add(postUrl);
 
                 console.log(`    🔍 Inspecting Post ${i + 1}/${maxPostsToCheck}: ${postUrl}`);
