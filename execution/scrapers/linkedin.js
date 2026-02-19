@@ -98,133 +98,129 @@ async function scrapeLinkedIn(page, reporter) {
             const jobItems = await page.locator(jobItemsSelector).all();
             console.log(`    📄 Found ${jobItems.length} potential jobs for "${keyword}".`);
 
-            const maxJobs = Math.min(jobItems.length, 5); // Limit 5
+            const maxJobs = Math.min(jobItems.length, 5);
+            const jobUrls = [];
 
+            // 1. Extract URLs first
             for (let i = 0; i < maxJobs; i++) {
-                try {
-                    const item = jobItems[i];
-                    const card = item.locator('.job-card-container').first();
-
-                    if (await card.isVisible()) {
-                        console.log(`    👆 Clicking job ${i + 1}/${maxJobs}...`);
-                        await card.scrollIntoViewIfNeeded();
-                        await card.click();
-
-                        await page.waitForTimeout(1000);
-                        try {
-                            await page.waitForSelector('#job-details', { timeout: 5000 });
-                        } catch (e) { }
-
-                        await randomDelay(500, 1000); // Reduced delay
-
-                        // Extract Details (Updated Selector)
-                        const titleEl = await page.locator('.job-details-jobs-unified-top-card__job-title, h2.t-24').first();
-                        const companyEl = await page.locator('.job-details-jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__subtitle').first();
-
-                        // New Primary Description Container for Location & Date
-                        const primaryDescEl = page.locator('.job-details-jobs-unified-top-card__primary-description-container').first();
-                        let locationRaw = 'Unknown Location';
-                        let postedDate = 'Past month';
-
-                        if (await primaryDescEl.count() > 0) {
-                            const descText = await primaryDescEl.innerText();
-                            // Format: "Ho Chi Minh City, Vietnam · 6 days ago · 16 people clicked apply"
-                            const parts = descText.split('·').map(s => s.trim());
-                            if (parts.length > 0) locationRaw = parts[0]; // First part is usually location
-
-                            // Find date part
-                            const dateMatch = descText.match(/(\d+\s+(?:minute|hour|day|week|month)s?\s+ago)/i);
-                            if (dateMatch) postedDate = dateMatch[1];
-                        } else {
-                            // Fallback
-                            const locationEl = await page.locator('.job-details-jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__workplace-type').first();
-                            locationRaw = await locationEl.innerText().catch(() => 'Unknown Location');
-                        }
-
-                        const title = await titleEl.innerText().catch(() => 'Unknown Title');
-                        const company = await companyEl.innerText().catch(() => 'Unknown Company');
-
-                        let description = '';
-                        const descEl = page.locator('#job-details');
-                        if (await descEl.count() > 0) description = await descEl.innerText();
-
-                        const cleanTitle = title.trim();
-                        const cleanCompany = company.trim();
-                        const cleanLocation = locationRaw.trim();
-
-                        // Clean URL
-                        let jobUrl = page.url();
-                        const linkEl = item.locator('a.job-card-container__link').first();
-                        const href = await linkEl.getAttribute('href').catch(() => null);
-                        if (href) {
-                            jobUrl = href.startsWith('http') ? href : `https://www.linkedin.com${href}`;
-                            jobUrl = jobUrl.split('?')[0];
-                        }
-
-                        // --- FILTERING ---
-                        const fullText = `${cleanTitle} ${description} ${cleanLocation}`.toLowerCase();
-
-                        // Keywords & Experience
-                        // Keywords & Experience
-                        if (!CONFIG.keywordRegex.test(fullText)) {
-                            console.log(`      ❌ Filtered: Missing Keyword (Golang) in ${cleanTitle}`);
-                            continue;
-                        }
-                        if (CONFIG.excludeRegex.test(fullText)) {
-                            console.log(`      ❌ Filtered: Senior/Lead detected in ${cleanTitle}`);
-                            continue;
-                        }
-
-                        // Location Filter (Updated Logic)
-                        const normalizedLoc = normalizeText(cleanLocation);
-                        const normalizedDesc = normalizeText(description);
-                        const locCheck = normalizedLoc + " " + normalizedDesc;
-
-                        // 1. Exclude Hanoi
-                        if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(locCheck)) {
-                            console.log(`      ❌ Filtered out: Location is Hanoi`);
-                            continue;
-                        }
-
-                        // 2. Identify Location (HCM, Can Tho, Remote)
-                        let finalLocation = 'Unknown';
-                        if (/\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(locCheck)) {
-                            finalLocation = 'HCM';
-                        } else if (/\b(can tho|cantho)\b/.test(locCheck)) {
-                            finalLocation = 'Can Tho';
-                        } else if (/\b(remote)\b/.test(locCheck)) {
-                            finalLocation = 'Remote';
-                        } else {
-                            // Keep raw if not Hanoi and not specifically matched
-                            finalLocation = cleanLocation;
-                        }
-
-                        const job = {
-                            title: cleanTitle,
-                            company: cleanCompany,
-                            url: jobUrl,
-                            description: description.slice(0, 5000),
-                            location: finalLocation,
-                            source: 'LinkedIn',
-                            techStack: 'Golang',
-                            postedDate: postedDate,
-                            isFresher: true,
-                            matchScore: 0
-                        };
-
-                        job.matchScore = calculateMatchScore(job);
-                        if (job.matchScore >= 5) {
-                            console.log(`      ✅ Valid Job! Score: ${job.matchScore} - ${finalLocation} - ${postedDate}`);
-                            jobs.push(job);
-                        } else {
-                            console.log(`      ⚠️ Low Score (${job.matchScore}): ${cleanTitle} @ ${cleanCompany}`);
-                        }
-                    }
-                } catch (e) {
-                    console.log(`      ⚠️ Job Error: ${e.message}`);
-                    await screenshotDebugger.captureAndSend(page, `linkedin_job_w_${i}`);
+                const item = jobItems[i];
+                const linkEl = item.locator('a.job-card-container__link').first();
+                const href = await linkEl.getAttribute('href').catch(() => null);
+                if (href) {
+                    let fullUrl = href.startsWith('http') ? href : `https://www.linkedin.com${href}`;
+                    fullUrl = fullUrl.split('?')[0];
+                    jobUrls.push(fullUrl);
                 }
             }
+
+            console.log(`    🔗 Extracted ${jobUrls.length} links. Processing in parallel...`);
+
+            // 2. Process in Parallel (Limit concurrency if needed, but 5 is fine)
+            const jobPromises = jobUrls.map(async (url, index) => {
+                const jobPage = await context.newPage();
+                try {
+                    // console.log(`      🚀 Opening Job ${index + 1}: ${url}`);
+                    await jobPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+                    // Wait for content
+                    try {
+                        await jobPage.waitForSelector('.job-details-jobs-unified-top-card__primary-description-container', { timeout: 10000 });
+                    } catch (e) { /* Ignore */ }
+
+                    // Extract Details (Detail Page Selectors)
+                    const titleEl = await jobPage.locator('.job-details-jobs-unified-top-card__job-title, h1').first();
+                    const companyEl = await jobPage.locator('.job-details-jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__subtitle').first();
+
+                    const primaryDescEl = jobPage.locator('.job-details-jobs-unified-top-card__primary-description-container').first();
+                    let locationRaw = 'Unknown Location';
+                    let postedDate = 'Past month';
+
+                    if (await primaryDescEl.count() > 0) {
+                        const descText = await primaryDescEl.innerText();
+                        // Format: "Ho Chi Minh City, Vietnam · 6 days ago · 16 people clicked apply"
+                        const parts = descText.split('·').map(s => s.trim());
+                        if (parts.length > 0) locationRaw = parts[0];
+
+                        const dateMatch = descText.match(/(\d+\s+(?:minute|hour|day|week|month)s?\s+ago)/i);
+                        if (dateMatch) postedDate = dateMatch[1];
+                    } else {
+                        const locationEl = await jobPage.locator('.job-details-jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__workplace-type').first();
+                        locationRaw = await locationEl.innerText().catch(() => 'Unknown Location');
+                    }
+
+                    const title = await titleEl.innerText().catch(() => 'Unknown Title');
+                    const company = await companyEl.innerText().catch(() => 'Unknown Company');
+
+                    let description = '';
+                    const descEl = jobPage.locator('#job-details, .jobs-description__content');
+                    if (await descEl.count() > 0) description = await descEl.innerText();
+
+                    const cleanTitle = title.trim();
+                    const cleanLocation = locationRaw.trim();
+
+                    // --- FILTERING ---
+                    const fullText = `${cleanTitle} ${description} ${cleanLocation}`.toLowerCase();
+
+                    // Keywords & Experience
+                    if (!CONFIG.keywordRegex.test(fullText)) {
+                        console.log(`      ❌ [Target Failed] Missing Keyword: ${cleanTitle}`);
+                        return null;
+                    }
+                    if (CONFIG.excludeRegex.test(fullText)) {
+                        console.log(`      ❌ [Target Failed] Senior/Lead: ${cleanTitle}`);
+                        return null;
+                    }
+
+                    // Location Logic
+                    const normalizedLoc = normalizeText(cleanLocation);
+                    const normalizedDesc = normalizeText(description);
+                    const locCheck = normalizedLoc + " " + normalizedDesc;
+
+                    if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(locCheck)) {
+                        console.log(`      ❌ [Target Failed] Location Hanoi`);
+                        return null;
+                    }
+
+                    let finalLocation = 'Unknown';
+                    if (/\b(hcm|ho chi minh|saigon|tphcm)\b/.test(locCheck)) finalLocation = 'HCM';
+                    else if (/\b(can tho|cantho)\b/.test(locCheck)) finalLocation = 'Can Tho';
+                    else if (/\b(remote)\b/.test(locCheck)) finalLocation = 'Remote';
+                    else finalLocation = cleanLocation;
+
+                    const job = {
+                        title: cleanTitle,
+                        company: company.trim(),
+                        url: url,
+                        description: description.slice(0, 5000),
+                        location: finalLocation,
+                        source: 'LinkedIn',
+                        techStack: 'Golang',
+                        postedDate: postedDate,
+                        isFresher: true, // Default, logic handled by filter
+                        matchScore: 0
+                    };
+
+                    job.matchScore = calculateMatchScore(job);
+                    if (job.matchScore >= 5) {
+                        console.log(`      ✅ Valid Job! ${job.matchScore}pts - ${finalLocation} - ${postedDate}`);
+                        return job;
+                    } else {
+                        console.log(`      ⚠️ Low Score (${job.matchScore}): ${cleanTitle}`);
+                        return null;
+                    }
+
+                } catch (e) {
+                    console.log(`      ⚠️ Job Processing Error: ${e.message}`);
+                    return null;
+                } finally {
+                    await jobPage.close();
+                }
+            });
+
+            const results = await Promise.all(jobPromises);
+            const validNewJobs = results.filter(j => j !== null);
+            jobs.push(...validNewJobs);
+            console.log(`    ✨ Batch Complete: Found ${validNewJobs.length} valid jobs.`);
 
             // --- STEP 2: POST SEARCH ---
             const POST_SEARCH_URL = `https://www.linkedin.com/search/results/CONTENT/?keywords=${encodedKeyword}&origin=FACETED_SEARCH&sid=p8A&sortBy=%22date_posted%22`;
@@ -275,11 +271,16 @@ async function scrapeLinkedIn(page, reporter) {
 
                     if (!isRecent) continue;
 
-                    // Expand Content
-                    const moreBtn = update.locator('button.feed-shared-inline-show-more-text__see-more-less-toggle').first();
+                    if (!isRecent) continue;
+
+                    // Expand Content (New Selector)
+                    const moreBtn = update.locator('button[data-testid="expandable-text-button"]').first();
                     if (await moreBtn.isVisible()) {
-                        await moreBtn.click().catch(() => { });
-                        await page.waitForTimeout(500);
+                        try {
+                            // console.log('      Trying to expand post content...');
+                            await moreBtn.click({ force: true });
+                            await page.waitForTimeout(500);
+                        } catch (e) { /* Ignore click error */ }
                     }
 
                     const contentEl = update.locator('div.feed-shared-update-v2__description').first();
