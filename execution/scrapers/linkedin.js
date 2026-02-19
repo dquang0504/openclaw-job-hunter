@@ -323,8 +323,12 @@ async function scrapeLinkedIn(page, reporter) {
 
                     if (contentText.length < 50) continue;
 
-                    const actorNameEl = update.locator('.update-components-actor__name').first();
+                    const actorNameEl = update.locator('.update-components-actor__name, span.update-components-actor__title, a.update-components-actor__meta-link span[dir="ltr"]').first();
                     const authorName = await actorNameEl.innerText().catch(() => 'LinkedIn User');
+
+                    // Create a meaningful title from content
+                    const contentSnippet = contentText.split('\n')[0].slice(0, 80).trim();
+                    const postTitle = contentSnippet.length > 0 ? `[Post] ${contentSnippet}...` : `[Post] ${authorName} is hiring`;
 
                     // URL
                     const urn = await update.getAttribute('data-urn').catch(() => null);
@@ -355,7 +359,7 @@ async function scrapeLinkedIn(page, reporter) {
                     else if (/\b(remote)\b/.test(fullText)) postLocation = 'Remote';
 
                     const job = {
-                        title: `[Post] ${authorName} is hiring`,
+                        title: postTitle,
                         company: authorName,
                         url: postUrl,
                         description: contentText.slice(0, 5000),
