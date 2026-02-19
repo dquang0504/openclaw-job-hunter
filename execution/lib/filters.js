@@ -22,8 +22,8 @@ function calculateMatchScore(job) {
     if (CONFIG.locations.primary.some(l => location.includes(l))) score += 2;
     else if (CONFIG.locations.secondary.some(l => location.includes(l))) score += 1;
 
-    // Tech stack bonus (+1) -> Added 'backend'
-    if (/\b(docker|kubernetes|aws|gcp|microservices|rest\s*api|grpc|backend|back-end)\b/i.test(text)) score += 1;
+    // Tech stack bonus (+1) -> Added 'backend', 'fullstack'
+    if (/\b(docker|kubernetes|aws|gcp|microservices|rest\s*api|grpc|backend|back-end|fullstack|full-stack)\b/i.test(text)) score += 1;
 
     // PENALTY: Experience >= 3 years (Zero score)
     // Matches: "3 years", "3 nam", "3+ years", "4 năm", "5 nam"
