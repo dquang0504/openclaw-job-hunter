@@ -98,7 +98,7 @@ async function scrapeLinkedIn(page, reporter) {
             const jobItems = await page.locator(jobItemsSelector).all();
             console.log(`    📄 Found ${jobItems.length} potential jobs for "${keyword}".`);
 
-            const maxJobs = Math.min(jobItems.length, 5); // Limit to 5 jobs per keyword for speed
+            const maxJobs = Math.min(jobItems.length, 5); // Limit 5
 
             for (let i = 0; i < maxJobs; i++) {
                 try {
@@ -115,16 +115,34 @@ async function scrapeLinkedIn(page, reporter) {
                             await page.waitForSelector('#job-details', { timeout: 5000 });
                         } catch (e) { }
 
-                        await randomDelay(1000, 2000);
+                        await randomDelay(500, 1000); // Reduced delay
 
-                        // Extract Details
+                        // Extract Details (Updated Selector)
                         const titleEl = await page.locator('.job-details-jobs-unified-top-card__job-title, h2.t-24').first();
                         const companyEl = await page.locator('.job-details-jobs-unified-top-card__company-name, .job-details-jobs-unified-top-card__subtitle').first();
-                        const locationEl = await page.locator('.job-details-jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__workplace-type').first();
+
+                        // New Primary Description Container for Location & Date
+                        const primaryDescEl = page.locator('.job-details-jobs-unified-top-card__primary-description-container').first();
+                        let locationRaw = 'Unknown Location';
+                        let postedDate = 'Past month';
+
+                        if (await primaryDescEl.count() > 0) {
+                            const descText = await primaryDescEl.innerText();
+                            // Format: "Ho Chi Minh City, Vietnam · 6 days ago · 16 people clicked apply"
+                            const parts = descText.split('·').map(s => s.trim());
+                            if (parts.length > 0) locationRaw = parts[0]; // First part is usually location
+
+                            // Find date part
+                            const dateMatch = descText.match(/(\d+\s+(?:minute|hour|day|week|month)s?\s+ago)/i);
+                            if (dateMatch) postedDate = dateMatch[1];
+                        } else {
+                            // Fallback
+                            const locationEl = await page.locator('.job-details-jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__workplace-type').first();
+                            locationRaw = await locationEl.innerText().catch(() => 'Unknown Location');
+                        }
 
                         const title = await titleEl.innerText().catch(() => 'Unknown Title');
                         const company = await companyEl.innerText().catch(() => 'Unknown Company');
-                        const locationRaw = await locationEl.innerText().catch(() => 'Unknown Location');
 
                         let description = '';
                         const descEl = page.locator('#job-details');
@@ -147,12 +165,13 @@ async function scrapeLinkedIn(page, reporter) {
                         const fullText = `${cleanTitle} ${description} ${cleanLocation}`.toLowerCase();
 
                         // Keywords & Experience
+                        // Keywords & Experience
                         if (!CONFIG.keywordRegex.test(fullText)) {
-                            // console.log('Filtered: Keyword');
+                            console.log(`      ❌ Filtered: Missing Keyword (Golang) in ${cleanTitle}`);
                             continue;
                         }
                         if (CONFIG.excludeRegex.test(fullText)) {
-                            // console.log('Filtered: Senior');
+                            console.log(`      ❌ Filtered: Senior/Lead detected in ${cleanTitle}`);
                             continue;
                         }
 
@@ -188,15 +207,17 @@ async function scrapeLinkedIn(page, reporter) {
                             location: finalLocation,
                             source: 'LinkedIn',
                             techStack: 'Golang',
-                            postedDate: 'Past month',
+                            postedDate: postedDate,
                             isFresher: true,
                             matchScore: 0
                         };
 
                         job.matchScore = calculateMatchScore(job);
                         if (job.matchScore >= 5) {
-                            console.log(`      ✅ Valid Job! Score: ${job.matchScore} - ${finalLocation}`);
+                            console.log(`      ✅ Valid Job! Score: ${job.matchScore} - ${finalLocation} - ${postedDate}`);
                             jobs.push(job);
+                        } else {
+                            console.log(`      ⚠️ Low Score (${job.matchScore}): ${cleanTitle} @ ${cleanCompany}`);
                         }
                     }
                 } catch (e) {
