@@ -28,7 +28,19 @@ class TelegramReporter {
             `🕒 Found at: ${this.escapeMarkdown(formatDateTime())}`
         ].filter(Boolean).join('\n');
 
-        await this.bot.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+        const inlineKeyboard = {
+            inline_keyboard: [
+                [
+                    { text: '🛠️ Refine CV', url: job.url },
+                    { text: '🔗 View Job', url: job.url }
+                ]
+            ]
+        };
+
+        await this.bot.sendMessage(this.chatId, message, {
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard
+        });
     }
 
     async sendCaptchaAlert(screenshotPath) {
