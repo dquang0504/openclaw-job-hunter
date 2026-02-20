@@ -29,6 +29,8 @@ const CONFIG = {
         'https://www.facebook.com/groups/itjobsphp', // 'Tuyển Dụng IT - Việc làm Back-end Java, .NET, Golang, PHP, Python, NodeJS'
         'https://www.facebook.com/groups/ithotjobs.tuyendungit.vieclamcntt.susudev', // IT Hot Jobs
         'https://www.facebook.com/groups/465885632447300', // IT Jobs Group
+        'https://www.facebook.com/groups/1556846738967719', // (New Group)
+        'https://www.facebook.com/groups/1112083256270739', // (New Group)
     ],
 
     vercelUrl: 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h',
