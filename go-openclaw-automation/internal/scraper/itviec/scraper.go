@@ -3,6 +3,7 @@ package itviec
 import (
 	"context"
 	"fmt"
+	"go-openclaw-automation/internal/browser"
 	"go-openclaw-automation/internal/config"
 	"go-openclaw-automation/internal/scraper"
 	"go-openclaw-automation/utils"
@@ -151,7 +152,7 @@ func (s *ITViecScraper) handleCloudflare(page playwright.Page) error {
 		log.Println("    🤖 Found Cloudflare/Turnstile Frame, checking for checkbox...")
 		checkbox := turnstileFrame.Locator(`input[type="checkbox"], .ctp-checkbox-label, #challenge-stage`).First()
 		if visible, _ := checkbox.IsVisible(); visible {
-			utils.MouseJiggle(page)
+			browser.MouseJiggle(page)
 			checkbox.Click()
 			log.Println("    🖱️ Clicked Turnstile checkbox!")
 			time.Sleep(5 * time.Second)

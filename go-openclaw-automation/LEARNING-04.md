@@ -109,3 +109,26 @@ Add(["url3"]) → update RAM + ghi lại DISK ngay lập tức
 ```
 
 **Tóm lại:** `seen` map là bản **copy trong RAM** của file disk. `load()` có nhiệm vụ sync từ disk → RAM khi app khởi động. Việc "đã seen" là trạng thái được lưu trong file, còn trong RAM là 0 sau mỗi lần khởi động lại.
+
+---
+
+## 🔗 **URL NORMALIZATION IN WEB SCRAPING**
+
+### ❓ **TODO 5: Tại sao không append fullUrl luôn mà phải split theo dấu `?`?**
+
+**Context:** `internal/scraper/linkedin/scraper.go`
+
+**Trả lời:**
+
+Các nền tảng tuyển dụng như LinkedIn thường gắn thêm các **query parameters** (tham số theo dõi) vào URL của job để tracking nguồn gốc traffic.
+
+Ví dụ cùng một job, nhưng URL có thể khác nhau tùy thời điểm hoặc người click:
+- `https://linkedin.com/jobs/view/123456?refId=abc&trackingId=xyz`
+- `https://linkedin.com/jobs/view/123456?refId=def&trackingId=mno`
+
+Nếu giữ nguyên cả chuỗi, hệ thống deduplication (loại bỏ trùng lặp) sẽ coi đây là **2 job khác nhau**, dẫn đến việc spam tin nhắn trùng lặp.
+
+Việc `strings.Split(fullUrl, "?")[0]` giúp lấy về URL gốc (canonical URL):
+- `https://linkedin.com/jobs/view/123456`
+
+Điều này đảm bảo tính duy nhất cho mỗi job trong database/cache của chúng ta.

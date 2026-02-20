@@ -10,6 +10,7 @@ import (
 	"go-openclaw-automation/internal/filter"
 	"go-openclaw-automation/internal/scraper"
 	"go-openclaw-automation/internal/scraper/itviec"
+	"go-openclaw-automation/internal/scraper/linkedin"
 	"go-openclaw-automation/internal/scraper/topcv"
 	"log"
 	"os"
@@ -43,6 +44,7 @@ func main() {
 	cookieFiles := map[string]string{
 		"topcv": filepath.Join(cfg.CookiesPath, "cookies-topcv.json"),
 		"itviec": filepath.Join(cfg.CookiesPath, "cookies-itviec.json"),
+		"linkedin": filepath.Join(cfg.CookiesPath, "cookies-linkedin.json"),
 	}
 	var allCookies []playwright.OptionalCookie
 	for name, cookieFile := range cookieFiles {
@@ -72,6 +74,7 @@ func main() {
 	scrapers := []scraper.Scraper{
 		topcv.NewTopCVScraper(cfg),
 		itviec.NewITViecScraper(cfg),
+		linkedin.NewLinkedInScraper(cfg),
 	}
 
 	//run scrapers loop
