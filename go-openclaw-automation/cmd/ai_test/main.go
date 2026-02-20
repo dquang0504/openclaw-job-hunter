@@ -8,12 +8,19 @@ import (
 
 	"go-openclaw-automation/internal/ai"
 	"go-openclaw-automation/internal/pdf"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	apiKey := os.Getenv("GROK_API_KEY")
+	// Attempt to load .env from current directory or parent directories
+	if err := godotenv.Load(".env"); err != nil {
+		godotenv.Load("../../.env") // Fallback for running from within cmd/ai_test
+	}
+
+	apiKey := os.Getenv("GROQ_API_KEY")
 	if apiKey == "" {
-		log.Println("GROK_API_KEY environment variable not set. Please set it to test the AI.")
+		log.Println("GROQ_API_KEY environment variable not set. Please set it to test the AI.")
 		return
 	}
 

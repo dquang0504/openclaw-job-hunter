@@ -12,7 +12,7 @@ import (
 	"go-openclaw-automation/internal/models"
 )
 
-const grokURL = "https://api.x.ai/v1/chat/completions"
+const grokURL = "https://api.groq.com/openai/v1/chat/completions"
 
 type grokClient struct {
 	apiKey     string
@@ -20,11 +20,11 @@ type grokClient struct {
 	httpClient *http.Client
 }
 
-// NewGrokClient creates a new xAI Grok API client
+// NewGrokClient creates a new xAI Grok API client (now using Groq under the hood)
 func NewGrokClient(apiKey string) Client {
 	return &grokClient{
 		apiKey:     apiKey,
-		model:      "grok-2-latest", // Update to whichever model is best
+		model:      "llama-3.3-70b-versatile", // Using Groq's super fast Llama-3 model
 		httpClient: &http.Client{},
 	}
 }

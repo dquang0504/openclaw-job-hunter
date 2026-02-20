@@ -9,9 +9,15 @@ import (
 	"go-openclaw-automation/internal/ai"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Attempt to load .env from current directory or parent directories
+	if err := godotenv.Load(".env"); err != nil {
+		godotenv.Load("../../.env")
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -52,9 +58,9 @@ func main() {
 		}
 
 		// Init AI client (Using Grok per plan)
-		apiKey := os.Getenv("GROK_API_KEY")
+		apiKey := os.Getenv("GROQ_API_KEY")
 		if apiKey == "" {
-			log.Println("GROK_API_KEY missing. Cannot tailor resume.")
+			log.Println("GROQ_API_KEY missing. Cannot tailor resume.")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "AI not configured"})
 			return
 		}
