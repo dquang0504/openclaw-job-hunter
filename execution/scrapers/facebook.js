@@ -363,6 +363,16 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                         bodyText = bodyText.replace(pattern, '').trim();
                     }
 
+                    // Remove duplicate/noisy prefix from homepage truncation ("... Xem thêm" / "... See more")
+                    const noiseRegex = /(?:\.\.\.|…)\s*(?:Xem thêm|See more)/gi;
+                    const noiseMatches = [...bodyText.matchAll(noiseRegex)];
+                    if (noiseMatches.length > 0) {
+                        const lastMatch = noiseMatches[noiseMatches.length - 1];
+                        const cutoffIndex = lastMatch.index + lastMatch[0].length;
+                        bodyText = bodyText.slice(cutoffIndex).trim();
+                        console.log(`      ✂️ Truncated noise up to "${lastMatch[0]}".`);
+                    }
+
                     // LOGGING REQUIRED BY USER
                     const contentSnippet = bodyText.slice(-300).replace(/\n/g, ' '); // Last 300 chars
                     console.log(`      📝 Post Details:`);
