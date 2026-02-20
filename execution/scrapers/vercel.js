@@ -12,7 +12,8 @@ async function scrapeVercel(page, reporter) {
     const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     try {
-        const targetUrl = CONFIG.vercelUrl || 'https://vercel.com/dashboard';
+        const preVisitUrl = 'https://vercel.com/dquang0504s-projects/my-portfolio/deployments';
+        const targetUrl = 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h';
 
         // Load Cache
         let cachedStats = {};
@@ -24,6 +25,12 @@ async function scrapeVercel(page, reporter) {
             }
         }
 
+        // 1. Visit Deployments page first (Warm up)
+        console.log(`  🚀 Pre-visiting: ${preVisitUrl}`);
+        await page.goto(preVisitUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // 2. Navigate to Analytics
+        console.log(`  👉 Navigating to: ${targetUrl}`);
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         // Wait for hydration (reduced from 3s to 2s)
