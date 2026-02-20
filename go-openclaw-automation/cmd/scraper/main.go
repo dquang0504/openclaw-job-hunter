@@ -10,8 +10,8 @@ import (
 	"go-openclaw-automation/internal/filter"
 	"go-openclaw-automation/internal/scraper"
 	"go-openclaw-automation/internal/scraper/itviec"
-	"go-openclaw-automation/internal/scraper/linkedin"
 	"go-openclaw-automation/internal/scraper/topcv"
+	"go-openclaw-automation/internal/telegram"
 	"log"
 	"os"
 	"path/filepath"
@@ -25,6 +25,13 @@ func main() {
 	//load config
 	cfg := config.Load()
 	log.Printf("🔧 Config loaded. Keywords: %v", cfg.Keywords)
+
+	//init telegram bot
+	bot, err := telegram.NewBot(cfg.TelegramToken, cfg.TelegramChatID)
+	if err != nil {
+		log.Fatalf("❌ Failed to init Telegram Bot: %v", err)
+	}
+	log.Println("🤖 Telegram Bot initialized.")
 
 	//setup context with timeout = 10 mins
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -74,7 +81,7 @@ func main() {
 	scrapers := []scraper.Scraper{
 		topcv.NewTopCVScraper(cfg),
 		itviec.NewITViecScraper(cfg),
-		linkedin.NewLinkedInScraper(cfg),
+		// linkedin.NewLinkedInScraper(cfg),
 	}
 
 	//run scrapers loop
@@ -83,7 +90,8 @@ func main() {
 		log.Printf("\n▶️ Starting scraper: %s", s.Name())
 		jobs, err := s.Scrape(ctx, page)
 		if err != nil {
-			log.Fatalf("❌ Error running scraper %s: %v", s.Name(), err)
+			log.Printf("❌ Error running scraper %s: %v", s.Name(), err)
+			continue
 		}
 
 		//Filter jobs
@@ -126,6 +134,24 @@ func main() {
 	}
 	jobCache.Add(unseenURLs)
 	log.Printf("💾 Marked %d jobs as seen", len(unseenURLs))
+
+	//start sending jobs to telegram
+	if len(unseenJobs) > 0 {
+		log.Printf("📊 Found %d valid NEW jobs to send", len(unseenJobs))
+		for _, job := range unseenJobs {
+			log.Printf("  [%d/10] %s @ %s", job.MatchScore, job.Title, job.Company)
+			if err := bot.SendJob(job); err != nil {
+				log.Printf("⚠️ Failed to send job to Telegram: %v", err)
+			}
+			//1 second delay to avoid 429
+			time.Sleep(1 * time.Second)
+		}
+		//Send status
+		statusMsg := fmt.Sprintf("✅ Found %d new valid jobs, sent %d jobs.", len(unseenJobs), len(unseenJobs))
+		if err := bot.SendStatus(statusMsg); err != nil {
+			log.Printf("⚠️ Failed to send status to Telegram: %v", err)
+		}
+	}
 
 	//save results
 	saveJobs(unseenJobs)

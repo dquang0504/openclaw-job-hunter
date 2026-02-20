@@ -3,6 +3,7 @@ package topcv
 import (
 	"context"
 	"fmt"
+	"go-openclaw-automation/internal/browser"
 	"go-openclaw-automation/internal/config"
 	"go-openclaw-automation/internal/scraper"
 	"go-openclaw-automation/utils"
@@ -117,10 +118,9 @@ func (s *TopCVScraper) Scrape(ctx context.Context, page playwright.Page) ([]scra
 			}
 
 			//human behavior
-			utils.RandomDelay(1000, 2000)
-			utils.MouseJiggle(page)
-			utils.SmoothScroll(page)
-			utils.RandomDelay(500,1000)
+			browser.RandomDelay(1000, 2000)
+			browser.MouseJiggle(page)
+			browser.RandomDelay(500,1000)
 
 			//check no suitable jobs to fail fast
 			if visible, _ := page.Locator(".none-suitable-job").IsVisible(); visible {
@@ -163,7 +163,7 @@ func (s *TopCVScraper) Scrape(ctx context.Context, page playwright.Page) ([]scra
 				}
 
 				if rand.Float32() > 0.8 {
-					utils.RandomDelay(100, 300)
+					browser.RandomDelay(100, 300)
 				}
 
 				titleEl := card.Locator("h3.title a, .title-block a, a.title").First()

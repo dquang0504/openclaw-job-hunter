@@ -132,3 +132,54 @@ Việc `strings.Split(fullUrl, "?")[0]` giúp lấy về URL gốc (canonical UR
 - `https://linkedin.com/jobs/view/123456`
 
 Điều này đảm bảo tính duy nhất cho mỗi job trong database/cache của chúng ta.
+
+---
+
+## 💬 **TELEGRAM BOT: MARKDOWN & FORMATTING**
+
+### ❓ **TODO 6: Ý nghĩa của các ký hiệu trong `escapeMarkdown` là gì?**
+
+**Context:** `internal/telegram/bot.go` — `escapeMarkdown()`
+
+**Trả lời:**
+
+Telegram gửi tin nhắn dưới dạng `MarkdownV2`. Parse mode này **bắt buộc** mọi ký tự đặc biệt có thể mang ý nghĩa format phải được escape bằng dấu `\` nếu nó nằm trong một chuỗi bình thường (để tránh lỗi parse của Telegram).
+
+Các ký tự được đưa vào vòng lặp `replace` bao gồm:
+`_`, `*`, `[`, `]`, `(`, `)`, `~`, `` ` ``, `>`, `#`, `+`, `-`, `=`, `|`, `{`, `}`, `.`, `!`
+
+**Ví dụ:**
+- Cú pháp in đậm: `*Hello*` -> nếu text là `Node.js & C*` thì nó sẽ lỗi vì không có dấu `*` đóng đóng. Do đó ta escape: `Node\.js & C\*`.
+- Nếu công ty là: `Viet-Tech, Inc.` => output xử lý escape: `Viet\-Tech, Inc\.`
+
+---
+
+### ❓ **TODO 7: Tại sao lại check `Source == Facebook` khi in ra description?**
+
+**Context:** `internal/telegram/bot.go` — `SendJob()`
+
+**Trả lời:**
+
+Đây là một "đặc sản" của việc crawl dữ liệu từ **Mạng Xã Hội (Facebook, Threads, LinkedIn Post)** so với các trang Job Portal truyền thống (TopCV, ITViec).
+
+- **Job Portal**: Thường có link JD cụ thể, ứng viên chỉ cần bấm "View Job" để đọc. Description gửi qua tele dài dòng là không cần thiết.
+- **Mạng Xã Hội**: Thường được post dưới dạng bài đăng của HR. Có link nhưng bấm vào nó ném ra link... feed của người ta (nhiều khi lỗi). Do đó hiển thị thêm `Description` ngay trên Telegram để người dùng lấy thông tin liên hệ như email ứng tuyển luôn mà không cần vào Link nữa. 
+
+Trong source nodejs ban đầu có xử lý case cho Facebook/LinkedIn Post là vì lẽ này. Các port từ Nodejs đều giữ nguyên logic này.
+
+---
+
+### ❓ **TODO 8: Ý nghĩa của "trạng thái tổng kết" trong `SendStatus`?**
+
+**Context:** `internal/telegram/bot.go` — `SendStatus()`
+
+**Trả lời:**
+
+Trạng thái tổng kết (Telemetry/Notification) là kiểu báo cáo "Report" tổng thể sau cả một lô chạy automation script hoàn tất thay vì từng job một.
+
+**Ví dụ thực tế đã có trong luồng làm việc:**
+Thay vì chỉ gửi lẻ tẻ "Bạn có Job A", "Bạn có Job B", khi kết thúc quá trình script search job vào cuối ngày, `main.go` gọi `bot.SendStatus()` để chốt lại:
+
+`ℹ️ Tìm được 50 jobs mới valid, đã gửi 8 jobs.`
+
+Điều này giúp user nắm bắt được bot có đang hoạt động mượt không và lượng thông tin ra sao, không bị im lặng đáng sợ.
