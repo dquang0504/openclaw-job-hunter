@@ -1,0 +1,88 @@
+{
+  "personal_information": {
+    "full_name": "Dang Duy Quang",
+    "job_title": "Full stack Developer - Go, React",
+    "location": "Cần Thơ, Vietnam",
+    "email": "williamdang0404@gmail.com",
+    "phone": "+84799607411",
+    "links": {
+      "linkedin": "linkedin.com/in/williamdang0404",
+      "portfolio": "portfolio-showcase-william.vercel.app/"
+    }
+  },
+  "summary": "Full-Stack Developer with hands-on experience building end-to-end web applications using Go, React, and TypeScript. Strong background in backend APIs, frontend state management, authentication, and containerized deployments. Experienced in delivering production-ready features across the full development lifecycle.",
+  "skills": {
+    "languages": ["Go (Golang)", "TypeScript", "Java", "Python", "SQL"],
+    "frontend": ["React", "TypeScript", "Vite", "Tailwind CSS", "Redux Toolkit"],
+    "backend": ["Go services", "FastAPI", "Java Spring Boot", "REST APIs", "Flask"],
+    "databases": ["PostgreSQL", "MySQL", "Redis"],
+    "devops_infra": ["Docker", "Docker Compose", "Nginx", "CI/CD (GitHub Actions)"],
+    "security": ["JWT", "OAuth", "RBAC", "SBOM", "Grype", "Syft"]
+  },
+  "experience": [
+    {
+      "role": "Software Engineering Intern - Full-Stack Developer (Go & React)",
+      "company": "iSeeWaves",
+      "location": "Pakistan (Remote)",
+      "duration": "October 2025 - January 2026",
+      "responsibilities": [
+        "Developed full-stack features for myESI, a multi-tenant application security platform.",
+        "Built backend services in Go and Python for SBOM ingestion, vulnerability scanning, and risk analysis.",
+        "Designed and implemented REST APIs with JWT-based authentication and organization-RBAC.",
+        "Developed React + TypeScript frontend components to visualize scan results, risk scores, and system data.",
+        "Optimized concurrent processing and Redis caching to improve system responsiveness.",
+        "Implemented asynchronous workflows using Kafka, scheduled workers, and Server-Sent Events (SSE).",
+        "Maintained Linux-based deployments using Docker, Nginx, and CI/CD pipelines."
+      ],
+      "tech_stack": ["Go", "React", "TypeScript", "FastAPI", "PostgreSQL", "Redis", "Kafka", "Docker", "Nginx", "GitHub Actions"]
+    },
+    {
+      "role": "Java Developer Intern",
+      "company": "Can Tho Radio & Television Station - THTPCT",
+      "location": "Vietnam",
+      "duration": "May 2024 - September 2024",
+      "responsibilities": [
+        "Built a role-based content management system with approval workflows.",
+        "Developed backend services and REST APIs using Java Spring Boot.",
+        "Implemented frontend components using React, HTML, and CSS.",
+        "Integrated MySQL and Firestore for data storage.",
+        "Collaborated with team members to deliver internal web applications."
+      ],
+      "tech_stack": ["Java Spring Boot", "React", "REST APIs", "MySQL", "Firestore"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Personal Portfolio Website",
+      "url": "portfolio-showcase-william.vercel.app/",
+      "duration": "March 2025 - Present",
+      "description": "Designed and built a personal portfolio website showcasing projects, code samples, and contact information."
+    },
+    {
+      "name": "E-commerce website - Go",
+      "details": [
+        "Integrated AI-assisted ordering via a Vertex AI chatbot (function calling), and intelligent product search using voice and image recognition (TensorFlow).",
+        "Supported multiple payment methods (COD, VNPAY, PayPal).",
+        "Implemented AI-based review moderation (toxic/NSFW filtering) and sentiment analysis.",
+        "Applied role-based access control and secure user authentication."
+      ],
+      "status": "About to be deployed on Linux using Docker and GitHub Actions CI/CD, with backend on AWS EC2 and PostgreSQL on AWS RDS."
+    }
+  ],
+  "education": {
+    "degree": "Diploma in Software Development",
+    "institution": "Can Tho FPT Polytechnic",
+    "location": "Vietnam",
+    "graduation_year": "2025",
+    "gpa": "3.81/4.0"
+  },
+  "certifications": [
+    {
+      "name": "IELTS Certification",
+      "band": 7.5,
+      "details": "R-8.5, L-8.0, W-7.0, S-6.5",
+      "issuer": "IDP",
+      "year": 2023
+    }
+  ]
+}
