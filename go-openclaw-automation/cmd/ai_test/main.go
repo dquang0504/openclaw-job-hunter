@@ -77,7 +77,7 @@ Requirements:
 	}
 
 	// Output logic
-	outputFile := "../logs/output_resume.pdf"
+	outputFile := "../../logs/output_resume.pdf"
 	if err := pdf.SaveToFile(pdfBytes, outputFile); err != nil {
 		outputFile = "output_resume.pdf" // Save current dir if fallback failed
 		if err := pdf.SaveToFile(pdfBytes, outputFile); err != nil {
