@@ -29,9 +29,15 @@ async function scrapeVercel(page, reporter) {
         console.log(`  🚀 Pre-visiting: ${preVisitUrl}`);
         await page.goto(preVisitUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // 2. Navigate to Analytics
-        console.log(`  👉 Navigating to: ${targetUrl}`);
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Wait for DOM content loaded and hydration
+        try {
+            await page.waitForLoadState('domcontentloaded');
+            await page.waitForTimeout(2000);
+        } catch (e) { }
+
+        // 2. Click the Analytics link
+        console.log(`  👉 Clicking Analytics link`);
+        await page.click('a[data-testid="sub-menu-link/analytics"]');
 
         // Wait for hydration (reduced from 3s to 2s)
         try {

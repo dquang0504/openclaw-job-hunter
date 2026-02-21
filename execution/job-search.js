@@ -27,7 +27,7 @@ const { calculateMatchScore } = require('./lib/filters');
 const { formatDateTime } = require('./utils/date');
 
 // Import scrapers
-//const { scrapeTopCV } = require('./scrapers/topcv');
+const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
 const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
 const { scrapeFacebook } = require('./scrapers/facebook');
@@ -177,10 +177,10 @@ async function main() {
         // =====================================================================
 
         // Scrape TopCV
-        //if (shouldRun('topcv')) {
-        //const topcvJobs = await scrapeTopCV(page, reporter);
-        //allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
-        //}
+        if (shouldRun('topcv')) {
+            const topcvJobs = await scrapeTopCV(page, reporter);
+            allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
+        }
 
         // Scrape Twitter
         if (shouldRun('twitter')) {
