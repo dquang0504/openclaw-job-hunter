@@ -25,6 +25,10 @@ func ConnectDB(ctx context.Context, connString string) (*Repository, error) {
 	config.MinConns = 2
 	config.MaxConnLifetime = time.Hour
 
+	// IMPORTANT: Supabase connection pooler (PgBouncer in Transaction mode)
+	// does not support prepared statements easily. We MUST disable the statement cache.
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %w", err)
