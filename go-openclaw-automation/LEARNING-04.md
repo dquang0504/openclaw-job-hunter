@@ -183,3 +183,271 @@ Thay vì chỉ gửi lẻ tẻ "Bạn có Job A", "Bạn có Job B", khi kết t
 `ℹ️ Tìm được 50 jobs mới valid, đã gửi 8 jobs.`
 
 Điều này giúp user nắm bắt được bot có đang hoạt động mượt không và lượng thông tin ra sao, không bị im lặng đáng sợ.
+
+---
+
+## 🏗️ **GO BEST PRACTICE: HELPER FUNCTIONS TRONG `main.go`**
+
+### ❓ **TODO 9: `main.go` có nhiều helper functions — đúng hay sai best practice?**
+
+**Context:** `cmd/scraper/main.go` — các functions `saveJobs()`, `extractExternalID()`
+
+**Trả lời:**
+
+**Sai** với các hàm có thể tái sử dụng. Quy tắc Go chuẩn:
+
+- `main.go` nên **chỉ chứa orchestration logic** (khởi tạo dependencies, gọi các component, điều phối flow).
+- Helper functions nên được đặt trong **file riêng trong cùng package** hoặc trong **package riêng** tùy mức độ tái sử dụng.
+
+**3 cấp độ phân tách:**
+
+| Vị trí | Khi nào dùng | Ví dụ |
+|---|---|---|
+| `cmd/scraper/helpers.go` | Helper nhỏ, chỉ dùng trong package `main` này | `saveJobs()`, `extractExternalID()` |
+| `internal/somepackage/` | Logic có thể tái dùng ở nhiều nơi | Filter, Dedup, Scraper |
+| `pkg/` | Thư viện dùng được cả ngoài module | Chưa có trong project này |
+
+**Giải pháp đã thực hiện:** Tách `saveJobs()` và `extractExternalID()` vào `cmd/scraper/helpers.go`. Vì chúng chỉ phục vụ riêng cho binary `scraper`, không đặt vào `internal/` (sẽ over-engineer).
+
+---
+
+## 🔑 **DATABASE EXTERNAL ID STRATEGY**
+
+### ❓ **TODO 10: Tại sao dùng `jobURL` làm `external_id` thay vì tạo ID riêng?**
+
+**Context:** `cmd/scraper/helpers.go` — `extractExternalID()`
+
+**Trả lời:**
+
+**Lý do pragmatic:** Các scraper hiện tại không expose job's numeric ID từng platform (e.g., LinkedIn job ID từ URL). URL đã là **canonical identifier** duy nhất cho mỗi listing.
+
+**Tại sao URL hoạt động tốt làm external_id:**
+1. URL là unique per job listing (mỗi job có URL riêng).
+2. Kết hợp với field `source` trong DB, constraint `UNIQUE(source, external_id)` đảm bảo không insert trùng.
+3. URL thường stable — LinkedIn/ITViec không thay đổi URL của listing cũ.
+
+**Khi nào nên cải thiện:**
+- Khi scraper có thể parse numeric job ID từ URL:
+  - LinkedIn: `https://linkedin.com/jobs/view/4132498735` → ID là `4132498735`
+  - ITViec: parse từ slug URL
+- Lúc đó dùng numeric ID sẽ ngắn gọn và robust hơn URL đầy đủ.
+
+**Hiện tại:** Dùng URL là acceptable và đúng cho giai đoạn này.
+
+---
+
+## 🐛 **NIL POINTER PANIC: `defer` VỚI POINTER CÓ THỂ NIL**
+
+### ❓ **Bug đặc biệt: Tại sao `defer repo.Close()` ngay sau khi DB lỗi lại crash?**
+
+**Context:** `cmd/scraper/main.go` — DB init block
+
+**Code BUG (đã fix):**
+```go
+repo, err := database.ConnectDB(...)
+if err != nil {
+    log.Printf("⚠️ DB not connected") // không fatal, tiếp tục
+}
+defer repo.Close() // 💥 PANIC nếu ConnectDB trả về nil, repo!
+```
+
+**Lý do crash:**
+
+`ConnectDB` trả về `(*Repository, error)`. Khi có lỗi, nó trả về `(nil, error)`.
+
+Khi `main()` return sau đó, Go thực thi `defer repo.Close()`. Nhưng `repo == nil`, nên gọi method trên nil pointer → **nil pointer dereference panic**.
+
+```
+goroutine 1 [running]:
+main.main()
+        runtime error: invalid memory address or nil pointer dereference
+```
+
+**Fix đúng:**
+```go
+repo, err := database.ConnectDB(...)
+if err != nil {
+    log.Printf("⚠️ DB not connected: %v", err)
+} else {
+    defer repo.Close() // chỉ defer khi repo thực sự không nil
+    log.Println("✅ Database Connected")
+}
+```
+
+**Bài học:** Luôn guard `defer` với resource acquisition — chỉ defer cleanup khi acquisition thành công. Đây là pattern chuẩn Go cho mọi resource (file, DB connection, mutex lock).
+
+---
+
+## 🌐 **PLAYWRIGHT: `BrowserContext` vs `Page`**
+
+### ❓ **TODO: `BrowserContext` mạnh hơn `Page` hay sao?**
+
+**Context:** `internal/scraper/base.go` — interface `Scraper`
+
+Không phải mạnh hơn — là **layer cao hơn** trong hệ thống phân cấp:
+
+```
+Browser (1 process Chromium)
+  └── BrowserContext  ← isolated session (cookies, localStorage riêng)
+        └── Page      ← 1 tab trong context đó
+```
+
+Interface mới nhận `BrowserContext` thay vì `Page` để mỗi scraper **tự tạo tab riêng** → safe cho concurrent. Interface cũ share 1 `Page` → chỉ chạy sequential được.
+
+---
+
+## 🔗 **ERRGROUP: SUPERVISOR CHO GOROUTINES**
+
+### ❓ **TODO: `errgroup` làm gì, tại sao dùng?**
+
+**Context:** `cmd/scraper/main.go`
+
+`errgroup` làm 3 thứ mà raw goroutine không làm được:
+1. **`g.Wait()`** — block đến khi tất cả goroutines xong
+2. **Error propagation** — collect errors từ mọi goroutine
+3. **`gCtx`** — khi 1 goroutine return error, context tự cancel → báo hiệu goroutines khác dừng
+
+Ở đây dùng `return nil` thay vì `return err` để scrapers độc lập — A lỗi không cancel B.
+
+---
+
+## 🔄 **LOOP VARIABLE CAPTURE ĐÃ FIX TỪ GO 1.22**
+
+### ❓ **TODO: `s := s` là gì? Go 1.25 không cần nữa sao?**
+
+**Context:** `cmd/scraper/main.go`
+
+Đây là workaround cho bug lịch sử: trước Go 1.22, tất cả goroutines trong loop share **cùng 1 biến** `s`. Khi goroutine chạy, `s` đã trỏ vào scraper cuối cùng của loop → mọi goroutine scrape cùng 1 platform.
+
+`s := s` tạo variable mới shadow biến loop → mỗi goroutine có bản copy riêng.
+
+**Từ Go 1.22+:** Fix tự động, `s := s` không cần nữa. Kiểm tra version bằng `go version`.
+
+---
+
+## 🎫 **SEMAPHORE TOKEN SYNTAX**
+
+### ❓ **TODO: `chan struct{}` vs `struct{}{}` — sao defer không có `struct{}{}`?**
+
+**Context:** `internal/scraper/topcv/scraper.go`
+
+| Ký hiệu | Vai trò |
+|---|---|
+| `chan struct{}` | **Kiểu** của channel |
+| `struct{}{}` | **Giá trị token** gửi vào channel |
+| `<-sem` | **Nhận token** ra (không cần giá trị, bỏ đi) |
+
+`struct{}` chiếm **0 bytes RAM** — lý do dùng thay vì `int`/`bool`.
+
+`defer` phải wrap trong `func()` vì Go chỉ chấp nhận **function call** sau `defer`, không phải expression:
+```go
+defer func() { <-sem }()  // ✅ Đúng
+// defer <-sem             // ❌ Compile error
+```
+
+---
+
+## 🐦 **TWITTER SCRAPER: QUERY BUILDING**
+
+### ❓ **TODO: `quotedKeywords` và `keywordPart` là gì?**
+
+**Context:** `internal/scraper/twitter/scraper.go`
+
+Mục đích: từ `["golang", "go developer"]` → build query `"golang" OR "go developer"`.
+
+```go
+// Bước 1: Wrap trong dấu ngoặc kép — Twitter search exact phrase khi có ngoặc
+quotedKeywords[i] = fmt.Sprintf(`"%s"`, k)
+// → ["\"golang\"", "\"go developer\""]
+
+// Bước 2: Nối bằng " OR "
+keywordPart := strings.Join(quotedKeywords, " OR ")
+// → `"golang" OR "go developer"`
+
+// Bước 3: Lắp vào query hoàn chỉnh
+searchQuery := fmt.Sprintf(`(%s) (job OR hiring) ...`, keywordPart)
+// → `("golang" OR "go developer") (job OR hiring) (fresher OR junior) -senior`
+```
+
+---
+
+## 🔍 **TWEET FILTER: CHECK `err != nil || len(text) < 20`**
+
+### ❓ **TODO: Check này có ý nghĩa gì?**
+
+2 điều kiện độc lập — bỏ qua nếu **một trong hai** đúng:
+- `err != nil` → tweet không có text element (ảnh-only, poll, video-only tweet)
+- `len(strings.TrimSpace(text)) < 20` → text quá ngắn sau khi trim — tweet emoji-only, reply cụt ("👍", "nice!")
+
+---
+
+## 🎯 **PRE-FILTER vs POST-FILTER PATTERN**
+
+### ❓ **TODO: `!jobKeywordRegex.MatchString(text)` → `continue` — có nên bỏ không?**
+
+**Không bỏ.** Đây là **pre-filter** (lọc trước AI). Logic Twitter có 2 tầng:
+
+1. **Pre-filter** (regex): loại nhanh tweet rõ ràng không liên quan → tiết kiệm AI calls
+2. **Post-filter** (`filter.ShouldIncludeJob`): filter chính xác hơn sau AI
+
+Pattern này standard trong data pipeline: **filter sớm, filter thô → filter muộn, filter tinh**.
+
+---
+
+## ✂️ **`Trim` vs `TrimSpace` vs `TrimPrefix`**
+
+### ❓ **TODO: Khác nhau như thế nào?**
+
+| Function | Loại bỏ gì | Input → Output |
+|---|---|---|
+| `TrimSpace(s)` | Whitespace đầu/cuối (space, tab, `\n`) | `"  hello\n"` → `"hello"` |
+| `Trim(s, cutset)` | Các ký tự trong `cutset` đầu/cuối | `Trim("--hi--", "-")` → `"hi"` |
+| `TrimPrefix(s, prefix)` | Đúng chuỗi `prefix` ở đầu (nếu có) | `TrimPrefix("/user", "/")` → `"user"` |
+
+Twitter `authorHref` trả về `/username` → `TrimPrefix(authorHref, "/")` → `"username"`.
+
+---
+
+## 🔗 **RELATIVE PATH → ABSOLUTE URL**
+
+### ❓ **TODO: `jobURL = "https://x.com"` default rồi lại gán trong if là sao?**
+
+```go
+jobURL := "https://x.com"           // Fallback khi không có tweetHref
+if tweetHref != "" {
+    jobURL = "https://x.com" + tweetHref  // Override: ghép domain + relative path
+}
+```
+
+Twitter DOM trả về `href` là **relative path**: `/username/status/123456789` (không có domain).
+Cần ghép `"https://x.com"` vào đầu để ra URL đầy đủ.
+
+Không dùng `+=` vì `jobURL` ban đầu là `"https://x.com"` → `+=` sẽ cho `"https://x.com/username/status/..."` chỉ khi `tweetHref` có giá trị. Kết quả giống nhau, nhưng pattern gán lại rõ ràng hơn về intent: "nếu có thì dùng cái này, không thì fallback".
+
+---
+
+## 📐 **FORMAT VERB `%.Ns` — TRUNCATE STRING**
+
+### ❓ **TODO: `%.40s` là gì? Khác `%.2f` ở chỗ nào?**
+
+`.N` trong format verb có nghĩa khác tùy **type**:
+
+| Verb | Ý nghĩa của `.N` |
+|---|---|
+| `%.2f` | 2 chữ số thập phân |
+| `%.40s` | Tối đa 40 ký tự (truncate string) |
+
+```go
+log.Printf("%.40s", "Hello World this is a very long string")
+// Output: "Hello World this is a very long string"  (< 40 chars, không cắt)
+
+log.Printf("%.10s", "Hello World this is a very long string")
+// Output: "Hello Worl"  (cắt ở ký tự thứ 10)
+```
+
+Các width verbs khác của `%s`:
+| Verb | Ý nghĩa |
+|---|---|
+| `%10s` | Pad LEFT đến 10 ký tự (right-align) |
+| `%-10s` | Pad RIGHT đến 10 ký tự (left-align) |
+| `%.10s` | TRUNCATE xuống tối đa 10 ký tự |

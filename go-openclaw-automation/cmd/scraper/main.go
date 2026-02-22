@@ -2,29 +2,40 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"go-openclaw-automation/internal/browser"
 	"go-openclaw-automation/internal/config"
-	"go-openclaw-automation/internal/dedup"
+	"go-openclaw-automation/internal/database"
 	"go-openclaw-automation/internal/filter"
+	"go-openclaw-automation/internal/models"
 	"go-openclaw-automation/internal/scraper"
 	"go-openclaw-automation/internal/scraper/itviec"
 	"go-openclaw-automation/internal/scraper/topcv"
+	"go-openclaw-automation/internal/scraper/twitter"
 	"go-openclaw-automation/internal/telegram"
 	"log"
-	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
 	//load config
 	cfg := config.Load()
 	log.Printf("🔧 Config loaded. Keywords: %v", cfg.Keywords)
+
+	//db init
+	repo, err := database.ConnectDB(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		log.Printf("⚠️ DB not connected, jobs won't be saved: %v", err)
+	} else {
+		defer repo.Close()
+		log.Println("✅ Database Connected")
+	}
 
 	//init telegram bot
 	bot, err := telegram.NewBot(cfg.TelegramToken, cfg.TelegramChatID)
@@ -49,9 +60,10 @@ func main() {
 
 	//load cookies
 	cookieFiles := map[string]string{
-		"topcv": filepath.Join(cfg.CookiesPath, "cookies-topcv.json"),
-		"itviec": filepath.Join(cfg.CookiesPath, "cookies-itviec.json"),
+		"topcv":    filepath.Join(cfg.CookiesPath, "cookies-topcv.json"),
+		"itviec":   filepath.Join(cfg.CookiesPath, "cookies-itviec.json"),
 		"linkedin": filepath.Join(cfg.CookiesPath, "cookies-linkedin.json"),
+		"twitter":  filepath.Join(cfg.CookiesPath, "cookies-twitter.json"),
 	}
 	var allCookies []playwright.OptionalCookie
 	for name, cookieFile := range cookieFiles {
@@ -63,18 +75,13 @@ func main() {
 		log.Printf("🍪 Loaded %s cookies (%d)", name, len(cookies))
 		allCookies = append(allCookies, cookies...)
 	}
-	
+
 	//create new browser context with cookies
 	browserCtx, err := pwManager.NewContext(allCookies)
 	if err != nil {
 		log.Fatalf("❌ Failed to create browser context: %v", err)
 	}
 
-	//create new page
-	page, err := browserCtx.NewPage()
-	if err != nil {
-		log.Fatalf("❌ Failed to create new page: %v", err)
-	}
 	log.Println("✅ Browser initialized successfully!")
 
 	//initialize scrapers
@@ -82,112 +89,125 @@ func main() {
 		topcv.NewTopCVScraper(cfg),
 		itviec.NewITViecScraper(cfg),
 		// linkedin.NewLinkedInScraper(cfg),
+		twitter.NewTwitterScraper(cfg),
 	}
 
 	//run scrapers loop
 	var allJobs []scraper.Job
+	var mu sync.Mutex
+	g, gCtx := errgroup.WithContext(ctx)
 	for _, s := range scrapers {
-		log.Printf("\n▶️ Starting scraper: %s", s.Name())
-		jobs, err := s.Scrape(ctx, page)
-		if err != nil {
-			log.Printf("❌ Error running scraper %s: %v", s.Name(), err)
-			continue
-		}
-
-		//Filter jobs
-		var filteredJobs []scraper.Job
-		for _, job := range jobs {
-			if filter.ShouldIncludeJob(job) {
-				//calc score
-				job.MatchScore = filter.CalculateMatchScore(job)
-				filteredJobs = append(filteredJobs, job)
+		g.Go(func() error {
+			log.Printf("\n▶️ Starting scraper: %s", s.Name())
+			jobs, err := s.Scrape(gCtx, browserCtx)
+			if err != nil {
+				log.Printf("❌ Error running scraper %s: %v", s.Name(), err)
+				return nil
 			}
-		}
 
-		//sort jobs by score
-		sort.Slice(filteredJobs, func(i, j int) bool {
-			return filteredJobs[i].MatchScore > filteredJobs[j].MatchScore
+			//Filter jobs
+			var filteredJobs []scraper.Job
+			for _, job := range jobs {
+				if filter.ShouldIncludeJob(job) {
+					//calc score
+					job.MatchScore = filter.CalculateMatchScore(job)
+					filteredJobs = append(filteredJobs, job)
+				}
+			}
+
+			//sort jobs by score
+			sort.Slice(filteredJobs, func(i, j int) bool {
+				return filteredJobs[i].MatchScore > filteredJobs[j].MatchScore
+			})
+
+			log.Printf("Filtered: %d/%d jobs (sorted by score)", len(filteredJobs), len(jobs))
+			log.Printf("✅ Scraper %s finished. Found %d jobs.", s.Name(), len(jobs))
+
+			mu.Lock()
+			allJobs = append(allJobs, filteredJobs...)
+			mu.Unlock()
+			return nil
 		})
+	}
 
-		log.Printf("Filtered: %d/%d jobs (sorted by score)", len(filteredJobs), len(jobs))
-
-		log.Printf("✅ Scraper %s finished. Found %d jobs.", s.Name(), len(jobs))
-		allJobs = append(allJobs, filteredJobs...)
+	//wait for all scrapers to finish
+	if err := g.Wait(); err != nil {
+		log.Printf("⚠️ Some scraper errors: %v", err)
 	}
 
 	log.Printf("\n📦 Total jobs collected: %d", len(allJobs))
 
-	//dedup jobs
-	jobCache := dedup.NewJobCache(cfg.CachePath)
+	// Dedup using DB as the single source of truth.
+	// When repo is nil (no DB), treat ALL jobs as unseen (send everything).
 	var unseenJobs []scraper.Job
 	for _, job := range allJobs {
-		if !jobCache.IsSeen(job.URL) {
+		if repo == nil || !repo.IsJobSeen(ctx, job.URL) {
 			unseenJobs = append(unseenJobs, job)
 		}
 	}
-	log.Printf("🔍 Deduplication: %d total -> %d unseen jobs", len(allJobs), len(unseenJobs))
-	// Mark all unseen jobs as seen (Telegram will be added later)
-	// When Telegram is integrated, only mark jobs that were actually sent
-	var unseenURLs []string
-	for _, job := range unseenJobs {
-		unseenURLs = append(unseenURLs, job.URL)
-	}
-	jobCache.Add(unseenURLs)
-	log.Printf("💾 Marked %d jobs as seen", len(unseenURLs))
+	log.Printf("🔍 Deduplication (DB): %d total → %d unseen jobs", len(allJobs), len(unseenJobs))
 
-	//start sending jobs to telegram
+	//start saving to DB and sending to telegram
 	if len(unseenJobs) > 0 {
-		log.Printf("📊 Found %d valid NEW jobs to send", len(unseenJobs))
-		for _, job := range unseenJobs {
-			log.Printf("  [%d/10] %s @ %s", job.MatchScore, job.Title, job.Company)
-			if err := bot.SendJob(job); err != nil {
+		type savedResult struct {
+			job   scraper.Job
+			jobID string // empty if repo is nil or save failed
+		}
+		savedResults := make([]savedResult, len(unseenJobs))
+		var dbWg sync.WaitGroup
+		log.Printf("📊 Found %d valid NEW jobs — saving to DB in parallel...", len(unseenJobs))
+
+		// ── Phase 1: Save ALL jobs to DB concurrently ────────────────────────
+		for i, job := range unseenJobs {
+			dbWg.Add(1)
+			go func(idx int, j scraper.Job) {
+				defer dbWg.Done()
+				savedResults[idx] = savedResult{job: j} // default: empty jobID
+
+				if repo == nil {
+					return
+				}
+				dbJob := &models.Job{
+					Source:         j.Source,
+					ExternalID:     extractExternalID(j.URL),
+					Title:          j.Title,
+					Company:        j.Company,
+					URL:            j.URL,
+					Location:       j.Location,
+					Salary:         j.Salary,
+					DescriptionRaw: j.Description,
+					MatchScore:     j.MatchScore,
+					PostedAt:       j.PostedDate,
+				}
+				saved, err := repo.SaveJob(ctx, dbJob)
+				if err != nil {
+					log.Printf("⚠️ Failed to save job to DB: %v", err)
+					return
+				}
+				savedResults[idx].jobID = saved.ID
+				log.Printf("💾 Job saved to DB with ID: %s", saved.ID)
+			}(i, job)
+		}
+
+		// Wait for ALL DB saves to finish before sending any Telegram message
+		dbWg.Wait()
+		log.Printf("💾 All DB saves complete — sending to Telegram...")
+
+		// ── Phase 2: Send Telegram sequentially (rate limited) ───────────────
+		for _, result := range savedResults {
+			log.Printf("  [%d/10] %s @ %s", result.job.MatchScore, result.job.Title, result.job.Company)
+			if err := bot.SendJob(result.job, result.jobID); err != nil {
 				log.Printf("⚠️ Failed to send job to Telegram: %v", err)
 			}
-			//1 second delay to avoid 429
-			time.Sleep(1 * time.Second)
+			time.Sleep(1 * time.Second) // rate limit: avoid Telegram 429
 		}
-		//Send status
+
+		// Send summary status
 		statusMsg := fmt.Sprintf("✅ Found %d new valid jobs, sent %d jobs.", len(unseenJobs), len(unseenJobs))
 		if err := bot.SendStatus(statusMsg); err != nil {
 			log.Printf("⚠️ Failed to send status to Telegram: %v", err)
 		}
 	}
 
-	//save results
-	saveJobs(unseenJobs)
-
 	log.Println("🏁 Execution finished.")
-}
-
-func saveJobs(jobs []scraper.Job) {
-	if len(jobs) == 0 {
-		log.Println("ℹ️ No jobs to save.")
-		return
-	}
-
-	//create logs directory if not exists
-	logDir := "logs"
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		log.Printf("⚠️ Failed to create logs directory: %v", err)
-		return
-	}
-
-	//gen filename: job-search-YYYY-MM-DD.json
-	filename := fmt.Sprintf("job-search-%s.json", time.Now().Format("2006-01-02"))
-	filePath := filepath.Join(logDir, filename)
-
-	//marshal
-	data, err := json.MarshalIndent(jobs, "", " ")
-	if err != nil {
-		log.Printf("⚠️ Failed to marshal jobs to JSON: %v", err)
-		return
-	}
-
-	//write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		log.Printf("⚠️ Failed to write logs file: %v", err)
-		return
-	}
-
-	log.Printf("📁 Results saved to %s", filePath)
 }

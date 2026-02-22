@@ -19,12 +19,13 @@ type Config struct {
 	TelegramChatID int64    `yaml:"telegram_chat_id" env:"TELEGRAM_CHAT_ID"`
 	Keywords       []string `yaml:"keywords"`
 	//Search criteria
-	Locations      []string `yaml:"locations"`
-	FacebookGroups []string `yaml:"facebook_groups"`
+	Locations       []string `yaml:"locations"`
+	FacebookGroups  []string `yaml:"facebook_groups"`
 	ExcludeKeywords []string `yaml:"exclude_keywords"`
 	//Paths
 	CookiesPath string `yaml:"cookies_path"`
 	CachePath   string `yaml:"cache_path"`
+	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
 }
 
 func Load() *Config {
@@ -45,6 +46,10 @@ func Load() *Config {
 	//Override with env vars
 	if token := os.Getenv("TELEGRAM_BOT_TOKEN"); token != "" {
 		cfg.TelegramToken = token
+	}
+
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		cfg.DatabaseURL = dbURL
 	}
 
 	if chatID := os.Getenv("TELEGRAM_CHAT_ID"); chatID != "" {

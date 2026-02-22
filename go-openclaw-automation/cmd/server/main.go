@@ -76,64 +76,90 @@ func startTelegramPolling(ctx context.Context, bot *tgbotapi.BotAPI, repo *datab
 	u.Timeout = 60
 
 	updates := bot.GetUpdatesChan(u)
+	log.Println("👂 Telegram polling started — waiting for button clicks...")
 
 	for update := range updates {
 		if update.CallbackQuery != nil {
+			log.Printf("📲 Received CallbackQuery: data=%q from user=%d", update.CallbackQuery.Data, update.CallbackQuery.From.ID)
 			go handleCallbackQuery(ctx, bot, repo, aiClient, update.CallbackQuery)
+		} else {
+			log.Printf("📨 Received update (type: message=%v)", update.Message != nil)
 		}
 	}
 }
 
 func handleCallbackQuery(ctx context.Context, bot *tgbotapi.BotAPI, repo *database.Repository, aiClient ai.Client, query *tgbotapi.CallbackQuery) {
+	log.Printf("🔔 handleCallbackQuery called: data=%q", query.Data)
+
 	// Acknowledge the callback immediately to remove loading state on button
 	callback := tgbotapi.NewCallback(query.ID, "Đã nhận yêu cầu Refine CV...")
-	bot.Request(callback)
+	if _, err := bot.Request(callback); err != nil {
+		log.Printf("⚠️ Failed to acknowledge callback: %v", err)
+	}
 
 	chatID := query.Message.Chat.ID
 	data := query.Data
 
 	if !strings.HasPrefix(data, "refine_cv:") {
+		log.Printf("⚠️ Unknown callback data: %q — ignoring", data)
 		return
 	}
 	jobID := strings.TrimPrefix(data, "refine_cv:")
+	log.Printf("🛠️ Processing Refine CV for jobID: %s", jobID)
 
-	// Send initial tracking message
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⏳ Đang phân tích Job ID: `%s` và gọi hệ thống AI (Groq)...", jobID))
-	msg.ParseMode = "MarkdownV2"
-	sentMsg, _ := bot.Send(msg)
+	// Send initial tracking message (plain text — no ParseMode to avoid MarkdownV2 escape issues)
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("⏳ Đang phân tích Job ID: %s...", jobID))
+	sentMsg, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("⚠️ Failed to send initial tracking message: %v", err)
+		// Don't return — continue processing even if initial message fails
+	}
 
 	updateLog := func(text string) {
+		if sentMsg.MessageID == 0 {
+			// Fallback: send new message if initial send failed
+			newMsg := tgbotapi.NewMessage(chatID, text)
+			bot.Send(newMsg)
+			return
+		}
 		editMsg := tgbotapi.NewEditMessageText(chatID, sentMsg.MessageID, text)
-		editMsg.ParseMode = "Markdown"
 		bot.Send(editMsg)
 	}
 
-	// Read User Base Resume (Fallback to local file if not DB yet for testing phase)
-	// In production, fetch from repo.GetUser
-	baseResumePath := "base-resume.json"
+	log.Println("📚 Step 1: Reading base resume file...")
+	baseResumePath := "base-knowledge.json"
 	if _, err := os.Stat(baseResumePath); os.IsNotExist(err) {
-		baseResumePath = "../../base-resume.json"
+		baseResumePath = "../../base-knowledge.json"
 	}
 	baseResumeBytes, err := os.ReadFile(baseResumePath)
 	if err != nil {
-		updateLog("❌ Lỗi: Không tìm thấy `base-resume.json` của user.")
+		updateLog("❌ Lỗi: Không tìm thấy base-knowledge.json")
 		return
 	}
+	log.Printf("📚 Base resume loaded (%d bytes)", len(baseResumeBytes))
 
-	// 1. Verify Job in DB
+	// Step 2: Get job from DB
+	log.Printf("🗄️ Step 2: Fetching job %s from DB...", jobID)
 	job, err := repo.GetJobByID(ctx, jobID)
 	if err != nil {
+		log.Printf("❌ GetJobByID failed: %v", err)
 		updateLog("❌ Lỗi: Không lấy được thông tin Job từ Database.")
 		return
 	}
+	log.Printf("✅ Job fetched: %s @ %s", job.Title, job.Company)
 
-	// 2. Register Application State in DB
+	// Step 3: Get or create user
+	log.Println("👤 Step 3: GetOrCreateUser...")
 	user, err := repo.GetOrCreateUser(ctx, query.From.ID, query.From.UserName, baseResumeBytes)
 	if err != nil {
+		log.Printf("❌ GetOrCreateUser failed: %v", err)
 		updateLog("❌ Lỗi: Không thể khởi tạo User record.")
 		return
 	}
+	log.Printf("✅ User: %s (ID=%s)", user.Username, user.ID)
 
+	// Step 4: Upsert application state
+	log.Println("📝 Step 4: UpsertApplication...")
 	appConfig := &models.Application{
 		UserID: user.ID,
 		JobID:  job.ID,
@@ -141,28 +167,40 @@ func handleCallbackQuery(ctx context.Context, bot *tgbotapi.BotAPI, repo *databa
 	}
 	app, err := repo.UpsertApplication(ctx, appConfig)
 	if err != nil {
-		log.Printf("Failed to upsert application: %v\n", err) // Not a fatal error to continue
+		log.Printf("⚠️ UpsertApplication failed (non-fatal): %v", err)
+		// Not fatal: continue without app record
 	}
 
-	// 3. Tailor with AI
-	updateLog("🧠 AI *Llama 3.3 70B* đang tính toán keyword và viết lại tóm tắt, kinh nghiệm làm việc...")
+	// Step 5: Call AI
+	log.Println("🧠 Step 5: Calling Groq AI TailorResume...")
+	updateLog("🧠 AI Llama 3.3 70B đang viết lại resume theo JD...")
 
 	jobDesc := job.Title + "\n\n" + job.DescriptionRaw
 	if job.DescriptionSummary != nil {
 		jobDesc = *job.DescriptionSummary
 	}
 
-	tailored, err := aiClient.TailorResume(ctx, string(baseResumeBytes), jobDesc)
+	var resumeSource string
+	if len(user.MasterResumeJSON) > 0 {
+		resumeSource = string(user.MasterResumeJSON)
+	} else {
+		resumeSource = string(baseResumeBytes)
+	}
+
+	tailored, err := aiClient.TailorResume(ctx, resumeSource, jobDesc)
 	if err != nil {
-		updateLog(fmt.Sprintf("❌ Lỗi AI: `%v`", err))
+		log.Printf("❌ TailorResume failed: %v", err)
+		updateLog(fmt.Sprintf("❌ Lỗi AI: %v", err))
 		if app != nil {
 			repo.UpdateApplicationStatus(ctx, app.ID, models.StatusFailed)
 		}
 		return
 	}
+	log.Println("✅ AI tailoring complete")
 
-	// 4. Generate PDF
-	updateLog("🎨 Đang dùng Playwright render giao diện PDF siêu đẹp chuẩn ATS...")
+	// Step 6: Generate PDF
+	log.Println("🎨 Step 6: Generating PDF with Playwright...")
+	updateLog("🎨 Đang render PDF...")
 
 	templatePath := "templates/resume.html"
 	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
@@ -171,12 +209,14 @@ func handleCallbackQuery(ctx context.Context, bot *tgbotapi.BotAPI, repo *databa
 	pdfGen := pdf.NewGenerator(templatePath)
 	pdfBytes, err := pdfGen.Generate(tailored)
 	if err != nil {
-		updateLog(fmt.Sprintf("❌ Lỗi render PDF: `%v`", err))
+		log.Printf("❌ PDF generation failed: %v", err)
+		updateLog(fmt.Sprintf("❌ Lỗi render PDF: %v", err))
 		if app != nil {
 			repo.UpdateApplicationStatus(ctx, app.ID, models.StatusFailed)
 		}
 		return
 	}
+	log.Println("✅ PDF generated successfully")
 
 	// 5. Save PDF File to filesystem (resumes directory)
 	resumeDir := "resumes"
@@ -196,8 +236,8 @@ func handleCallbackQuery(ctx context.Context, bot *tgbotapi.BotAPI, repo *databa
 		repo.UpdateApplicationStatus(ctx, app.ID, models.StatusCompleted)
 	}
 
-	// 6. Send PDF to Telegram
-	updateLog("📤 Gửi PDF hoàn thành. Chuẩn bị tài liệu!")
+	log.Println("📤 Step 7: Sending PDF to Telegram...")
+	updateLog("📤 Gửi PDF hoàn thành!")
 
 	fileReq := tgbotapi.FileBytes{
 		Name:  fileName,
@@ -205,10 +245,11 @@ func handleCallbackQuery(ctx context.Context, bot *tgbotapi.BotAPI, repo *databa
 	}
 
 	docMsg := tgbotapi.NewDocument(chatID, fileReq)
-	docMsg.Caption = fmt.Sprintf("✅ **Tạo CV thành công cho Cty %s!**\n\n*Summary AI viết ra:*\n_%s_\n\n👉 File đã lưu cục bộ tại `%s`", job.Company, tailored.Summary, outputPath)
-	docMsg.ParseMode = "Markdown"
+	docMsg.Caption = fmt.Sprintf("✅ Tạo CV thành công cho Cty %s!\n\nSummary:\n%s\n\nFile đã lưu tại: %s", job.Company, tailored.Summary, outputPath)
 
 	if _, err := bot.Send(docMsg); err != nil {
-		log.Printf("Failed to send Document via TG: %v\n", err)
+		log.Printf("❌ Failed to send Document via TG: %v", err)
+	} else {
+		log.Println("✅ PDF sent to Telegram successfully!")
 	}
 }

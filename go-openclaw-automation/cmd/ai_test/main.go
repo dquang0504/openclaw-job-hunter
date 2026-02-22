@@ -27,11 +27,11 @@ func main() {
 	client := ai.NewGrokClient(apiKey)
 
 	// Load the base resume
-	baseResumeBytes, err := os.ReadFile("base-resume.json")
+	baseResumeBytes, err := os.ReadFile("base-knowledge.json")
 	if err != nil {
-		baseResumeBytes, err = os.ReadFile("../../base-resume.json")
+		baseResumeBytes, err = os.ReadFile("../../base-knowledge.json")
 		if err != nil {
-			log.Fatalf("Failed to read base-resume.json: %v", err)
+			log.Fatalf("Failed to read base-knowledge.json: %v", err)
 		}
 	}
 

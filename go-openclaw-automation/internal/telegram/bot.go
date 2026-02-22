@@ -34,7 +34,7 @@ func (b *Bot) escapeMarkdown(text string) string {
 	return replacer.Replace(text)
 }
 
-func (b *Bot) SendJob(job scraper.Job) error {
+func (b *Bot) SendJob(job scraper.Job, jobID string) error {
 	//build message chunks
 	msgText := fmt.Sprintf("🏢 *%s*\n", b.escapeMarkdown(job.Company))
 	msgText += fmt.Sprintf("🔗 [View Job](%s)\n", job.URL)
@@ -66,9 +66,15 @@ func (b *Bot) SendJob(job scraper.Job) error {
 	msgText += fmt.Sprintf("🔖 Source: %s\n", b.escapeMarkdown(job.Source))
 
 	//create inline keyboard
+	var refineCVBtn tgbotapi.InlineKeyboardButton
+	if jobID != "" {
+		refineCVBtn = tgbotapi.NewInlineKeyboardButtonData("🛠️ Refine CV", "refine_cv:"+jobID)
+	}else {
+		refineCVBtn = tgbotapi.NewInlineKeyboardButtonURL("🛠️ View Job", job.URL)
+	}
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("🛠️ Refine CV", job.URL), tgbotapi.NewInlineKeyboardButtonURL("🔗 View Job", job.URL),
+			refineCVBtn, tgbotapi.NewInlineKeyboardButtonURL("🔗 View Job", job.URL),
 		),
 	)
 

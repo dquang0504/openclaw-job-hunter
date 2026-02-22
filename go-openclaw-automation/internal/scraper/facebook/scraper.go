@@ -28,7 +28,7 @@ func New(page playwright.Page, groups []string) *FacebookScraper {
 func (s *FacebookScraper) Scrape(ctx context.Context) ([]scraper.Job, error) {
 	var jobs []scraper.Job
 
-	for _, group := range s.groups {
+	for range s.groups {
 
 	}
 	return jobs, nil

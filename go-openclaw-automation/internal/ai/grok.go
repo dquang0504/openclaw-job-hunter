@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"go-openclaw-automation/internal/models"
 )
@@ -23,9 +24,11 @@ type grokClient struct {
 // NewGrokClient creates a new xAI Grok API client (now using Groq under the hood)
 func NewGrokClient(apiKey string) Client {
 	return &grokClient{
-		apiKey:     apiKey,
-		model:      "llama-3.3-70b-versatile", // Using Groq's super fast Llama-3 model
-		httpClient: &http.Client{},
+		apiKey: apiKey,
+		model:  "llama-3.3-70b-versatile", // Using Groq's super fast Llama-3 model
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second, // Prevent hang if Groq API is slow/unreachable
+		},
 	}
 }
 

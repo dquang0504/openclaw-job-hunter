@@ -29,6 +29,10 @@ type Job struct {
 	Title              string    `json:"title"`
 	Company            string    `json:"company"`
 	URL                string    `json:"url"`
+	Location           string    `json:"location"`
+	Salary             string    `json:"salary"`
+	MatchScore         int       `json:"match_score"`
+	PostedAt           string    `json:"posted_at"`
 	DescriptionRaw     string    `json:"description_raw"`
 	DescriptionSummary *string   `json:"description_summary,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`

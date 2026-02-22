@@ -88,14 +88,28 @@ func (r *Repository) UpdateUserResume(ctx context.Context, userID string, master
 // SaveJob inserts a new job or updates an existing one (based on source + external_id)
 func (r *Repository) SaveJob(ctx context.Context, job *models.Job) (*models.Job, error) {
 	query := `
-		INSERT INTO jobs (source, external_id, title, company, url, description_raw, description_summary)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (source, external_id) 
-		DO UPDATE SET title = EXCLUDED.title, company = EXCLUDED.company, description_raw = EXCLUDED.description_raw
-		RETURNING id, source, external_id, title, company, url, description_raw, description_summary, created_at`
+		INSERT INTO jobs (source, external_id, title, company, url, location, salary, match_score, posted_at, description_raw, description_summary)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (source, external_id)
+		DO UPDATE SET
+			title           = EXCLUDED.title,
+			company         = EXCLUDED.company,
+			location        = EXCLUDED.location,
+			salary          = EXCLUDED.salary,
+			match_score     = EXCLUDED.match_score,
+			posted_at       = EXCLUDED.posted_at,
+			description_raw = EXCLUDED.description_raw
+		RETURNING id, source, external_id, title, company, url, location, salary, match_score, posted_at, description_raw, description_summary, created_at`
 
-	err := r.db.QueryRow(ctx, query, job.Source, job.ExternalID, job.Title, job.Company, job.URL, job.DescriptionRaw, job.DescriptionSummary).
-		Scan(&job.ID, &job.Source, &job.ExternalID, &job.Title, &job.Company, &job.URL, &job.DescriptionRaw, &job.DescriptionSummary, &job.CreatedAt)
+	err := r.db.QueryRow(ctx, query,
+		job.Source, job.ExternalID, job.Title, job.Company, job.URL,
+		job.Location, job.Salary, job.MatchScore, job.PostedAt,
+		job.DescriptionRaw, job.DescriptionSummary,
+	).Scan(
+		&job.ID, &job.Source, &job.ExternalID, &job.Title, &job.Company, &job.URL,
+		&job.Location, &job.Salary, &job.MatchScore, &job.PostedAt,
+		&job.DescriptionRaw, &job.DescriptionSummary, &job.CreatedAt,
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to save job: %w", err)
@@ -104,12 +118,17 @@ func (r *Repository) SaveJob(ctx context.Context, job *models.Job) (*models.Job,
 	return job, nil
 }
 
-// GetJobByID retrieves a job by testing ID
+// GetJobByID retrieves a job by its UUID
 func (r *Repository) GetJobByID(ctx context.Context, jobID string) (*models.Job, error) {
 	var job models.Job
-	query := `SELECT id, source, external_id, title, company, url, description_raw, description_summary, created_at FROM jobs WHERE id = $1`
-	err := r.db.QueryRow(ctx, query, jobID).
-		Scan(&job.ID, &job.Source, &job.ExternalID, &job.Title, &job.Company, &job.URL, &job.DescriptionRaw, &job.DescriptionSummary, &job.CreatedAt)
+	query := `
+		SELECT id, source, external_id, title, company, url, location, salary, match_score, posted_at, description_raw, description_summary, created_at
+		FROM jobs WHERE id = $1`
+	err := r.db.QueryRow(ctx, query, jobID).Scan(
+		&job.ID, &job.Source, &job.ExternalID, &job.Title, &job.Company, &job.URL,
+		&job.Location, &job.Salary, &job.MatchScore, &job.PostedAt,
+		&job.DescriptionRaw, &job.DescriptionSummary, &job.CreatedAt,
+	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("job not found")
@@ -150,4 +169,44 @@ func (r *Repository) UpdateApplicationResult(ctx context.Context, appID string, 
 	_, err := r.db.Exec(ctx, "UPDATE applications SET tailored_resume_json = $1, status = $2 WHERE id = $3",
 		string(tailoredResume), status, appID)
 	return err
+}
+
+// ---------------- DEDUP OPERATIONS ----------------
+
+// IsJobSeen checks if a job URL already exists in the DB (by external_id = URL).
+// Replaces the local seen_jobs.json file for 100% DB-backed deduplication.
+func (r *Repository) IsJobSeen(ctx context.Context, jobURL string) bool {
+	var count int
+	err := r.db.QueryRow(ctx,
+		"SELECT COUNT(1) FROM jobs WHERE external_id = $1", jobURL,
+	).Scan(&count)
+	if err != nil {
+		return false // on error, treat as unseen so we don't silently skip
+	}
+	return count > 0
+}
+
+// UpdateUserMasterResume updates master_resume_json for a specific user by Telegram ID.
+func (r *Repository) UpdateUserMasterResume(ctx context.Context, telegramID int64, resumeJSON []byte) error {
+	_, err := r.db.Exec(ctx,
+		"UPDATE users SET master_resume_json = $1, updated_at = now() WHERE telegram_id = $2",
+		string(resumeJSON), telegramID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update master resume: %w", err)
+	}
+	return nil
+}
+
+// UpdateAllUsersResume updates master_resume_json for ALL users — used by the update_resume CLI tool.
+// Returns the number of rows updated.
+func (r *Repository) UpdateAllUsersResume(ctx context.Context, resumeJSON []byte) (int64, error) {
+	result, err := r.db.Exec(ctx,
+		"UPDATE users SET master_resume_json = $1, updated_at = now()",
+		string(resumeJSON),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update all users' resume: %w", err)
+	}
+	return result.RowsAffected(), nil
 }

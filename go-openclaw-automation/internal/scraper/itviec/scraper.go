@@ -16,18 +16,26 @@ import (
 
 type ITViecScraper struct {
 	cfg *config.Config
+	sem chan struct{}
 }
 
 func NewITViecScraper(cfg *config.Config) *ITViecScraper {
-	return &ITViecScraper{cfg: cfg}
+	return &ITViecScraper{cfg: cfg, sem: make(chan struct{}, 3)}
 }
 
 func (s *ITViecScraper) Name() string {
 	return "ITViec"
 }
 
-func (s *ITViecScraper) Scrape(ctx context.Context, page playwright.Page) ([]scraper.Job, error) {
+func (s *ITViecScraper) Scrape(ctx context.Context, browserCtx playwright.BrowserContext) ([]scraper.Job, error) {
 	var jobs []scraper.Job
+
+	//init page
+	page, err := browserCtx.NewPage()
+	if err != nil {
+		return nil, fmt.Errorf("itviec: failed to create page: %w", err)
+	}
+	defer page.Close()
 
 	//configure locations mapping
 	locations := []struct {

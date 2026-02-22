@@ -42,13 +42,13 @@ func main() {
 	defer repo.Close()
 
 	// 2. Read base resume
-	baseResumePath := "base-resume.json"
+	baseResumePath := "base-knowledge.json"
 	if _, err := os.Stat(baseResumePath); os.IsNotExist(err) {
-		baseResumePath = "../../base-resume.json"
+		baseResumePath = "../../base-knowledge.json"
 	}
 	baseResumeBytes, err := os.ReadFile(baseResumePath)
 	if err != nil {
-		log.Fatalf("Could not read base resume: %v", err)
+		log.Fatalf("Could not read base knowledge: %v", err)
 	}
 
 	// 3. Ensure User exists in DB

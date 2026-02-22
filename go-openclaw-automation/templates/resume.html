@@ -2,404 +2,416 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.PersonalInformation.FullName}} - Resume</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.PersonalInformation.FullName}} - Resume</title>
 
-        :root {
-            --primary: #111827;
-            /* Very dark gray/slate */
-            --secondary: #4b5563;
-            /* Medium gray */
-            --accent: #2563eb;
-            /* Professional Blue */
-            --border: #e5e7eb;
-            --bg: #ffffff;
-        }
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-        @page {
-            size: A4;
-            margin: 0;
-        }
+    :root {
+      --ink: #111827;
+      --muted: #4b5563;
+      --rule: #e5e7eb;
+      --link: #111827;
+    }
 
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            color: var(--primary);
-            background: var(--bg);
-            font-size: 10.5pt;
-            line-height: 1.5;
-            box-sizing: border-box;
-            text-rendering: optimizeLegibility;
-            -webkit-font-smoothing: antialiased;
-        }
+    /* Print */
+    @page {
+      size: A4;
+      margin: 0;
+    }
 
-        .container {
-            width: 210mm;
-            min-height: 297mm;
-            padding: 18mm 18mm 20mm 18mm;
-            margin: 0 auto;
-            background: white;
-            box-sizing: border-box;
-        }
+    html,
+    body {
+      height: 100%;
+      background: #fff;
+    }
 
-        header {
-            text-align: center;
-            margin-bottom: 24px;
-        }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      font-size: 10.5pt;
+      line-height: 1.45;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
 
-        h1 {
-            font-size: 26pt;
-            margin: 0;
-            color: var(--primary);
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }
+    /* A4 canvas */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 16mm 18mm 18mm 18mm;
+      box-sizing: border-box;
+    }
 
-        .job-title {
-            font-size: 13pt;
-            color: var(--accent);
-            margin: 4px 0 12px 0;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+    /* Header (TopDev-style: compact, no avatar, no big banner) */
+    .header {
+      margin-bottom: 10px;
+    }
 
-        .contact-info {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 12px;
-            font-size: 9.5pt;
-            color: var(--secondary);
-            font-weight: 500;
-        }
+    .name {
+      font-size: 18pt;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      margin: 0;
+    }
 
-        .contact-info span.separator {
-            color: #9ca3af;
-        }
+    .headline {
+      margin: 2px 0 0 0;
+      font-size: 10.5pt;
+      font-weight: 600;
+      color: var(--ink);
+    }
 
-        .contact-info a {
-            color: var(--primary);
-            text-decoration: none;
-            transition: color 0.2s;
-        }
+    .meta {
+      margin-top: 6px;
+      font-size: 9.5pt;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: baseline;
+    }
 
-        /* ATS Safe Sections */
-        .section {
-            margin-bottom: 20px;
-        }
+    .meta a {
+      color: var(--link);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }
 
-        h2 {
-            font-size: 13pt;
-            margin: 0 0 12px 0;
-            color: var(--primary);
-            text-transform: uppercase;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            border-bottom: 1.5px solid var(--border);
-            padding-bottom: 4px;
-        }
+    .meta a:hover {
+      border-bottom-color: var(--rule);
+    }
 
-        .summary {
-            font-size: 10.5pt;
-            text-align: justify;
-            color: var(--primary);
-        }
+    .sep {
+      color: #9ca3af;
+    }
 
-        /* Items (Jobs, Projects, Edu) */
-        .item {
-            margin-bottom: 16px;
-        }
+    /* Sections */
+    .section {
+      margin-top: 12px;
+    }
 
-        .item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 4px;
-        }
+    .section-title {
+      margin: 0 0 6px 0;
+      font-size: 10pt;
+      font-weight: 700;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
 
-        .item-title {
-            font-weight: 700;
-            font-size: 11pt;
-            color: var(--primary);
-        }
+    .rule {
+      height: 1px;
+      background: var(--rule);
+      border: 0;
+      margin: 0 0 8px 0;
+    }
 
-        .item-subtitle {
-            font-weight: 600;
-            color: var(--accent);
-            font-size: 10pt;
-        }
+    .paragraph {
+      margin: 0;
+      text-align: justify;
+    }
 
-        .item-date {
-            font-size: 9.5pt;
-            color: var(--secondary);
-            font-weight: 500;
-            text-align: right;
-            white-space: nowrap;
-        }
+    /* Skills (single-line rows like the PDFs) */
+    .skills {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
 
-        /* Bullet points */
-        ul {
-            margin: 6px 0 0 0;
-            padding-left: 18px;
-        }
+    .skill-line {
+      margin: 0 0 3px 0;
+    }
 
-        li {
-            margin-bottom: 5px;
-            font-size: 10.5pt;
-            text-align: justify;
-            color: var(--primary);
-            padding-left: 2px;
-        }
+    .label {
+      font-weight: 700;
+      color: var(--ink);
+    }
 
-        li::marker {
-            color: var(--secondary);
-            font-size: 10pt;
-        }
+    .value {
+      color: var(--ink);
+    }
 
-        /* Skills Grid */
-        .skills-grid {
-            display: table;
-            width: 100%;
-            font-size: 10.5pt;
-            border-spacing: 0 6px;
-        }
+    /* Items */
+    .item {
+      margin: 0 0 10px 0;
+    }
 
-        .skill-row {
-            display: table-row;
-        }
+    .item-title {
+      margin: 0;
+      font-weight: 700;
+      font-size: 10.5pt;
+    }
 
-        .skill-category {
-            display: table-cell;
-            font-weight: 700;
-            color: var(--primary);
-            width: 120px;
-            padding-right: 10px;
-            vertical-align: top;
-        }
+    .item-subline {
+      margin: 2px 0 0 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 9.5pt;
+      color: var(--muted);
+    }
 
-        .skill-list {
-            display: table-cell;
-            color: var(--primary);
-        }
+    .item-subline .left {
+      min-width: 0;
+      flex: 1;
+    }
 
-        /* Badges/Tech Stack */
-        .tech-stack {
-            font-size: 9.5pt;
-            color: var(--secondary);
-            margin-top: 6px;
-            font-weight: 500;
-        }
+    .item-subline .right {
+      white-space: nowrap;
+      text-align: right;
+    }
 
-        .tech-label {
-            font-weight: 700;
-            color: var(--primary);
-        }
+    /* Bullets */
+    ul.bullets {
+      margin: 6px 0 0 0;
+      padding: 0;
+      list-style: none;
+    }
 
-        .url-link a {
-            color: var(--secondary);
-            text-decoration: underline;
-            font-size: 9pt;
-            font-weight: 400;
-        }
-    </style>
+    ul.bullets li {
+      margin: 0 0 4px 0;
+      padding-left: 14px;
+      position: relative;
+      text-align: justify;
+    }
+
+    ul.bullets li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .tech {
+      margin-top: 5px;
+      font-size: 9.5pt;
+      color: var(--muted);
+    }
+
+    .tech .label {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    /* Project link line */
+    .project-link {
+      font-size: 9.5pt;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .project-link a {
+      color: var(--link);
+      text-decoration: none;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    /* Keep layout stable for PDF renderers */
+    * {
+      box-sizing: border-box;
+    }
+
+    .avoid-break {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  </style>
 </head>
 
 <body>
-    <div class="container">
-        <!-- HEADER -->
-        <header>
-            <h1>{{.PersonalInformation.FullName}}</h1>
-            <div class="job-title">{{.PersonalInformation.JobTitle}}</div>
-            <div class="contact-info">
-                {{if .PersonalInformation.Location}}<span>{{.PersonalInformation.Location}}</span>{{end}}
+  <div class="page">
+    <!-- HEADER -->
+    <div class="header">
+      <h1 class="name">
+        {{.PersonalInformation.FullName}}{{if .PersonalInformation.JobTitle}} ({{.PersonalInformation.JobTitle}}){{end}}
+      </h1>
 
-                {{if .PersonalInformation.Phone}}<span
-                    class="separator">•</span><span>{{.PersonalInformation.Phone}}</span>{{end}}
+      <div class="meta">
+        {{if .PersonalInformation.Location}}<span>{{.PersonalInformation.Location}}</span>{{end}}
 
-                {{if .PersonalInformation.Email}}<span class="separator">•</span>
-                <span><a href="mailto:{{.PersonalInformation.Email}}">{{.PersonalInformation.Email}}</a></span>{{end}}
-
-                {{if .PersonalInformation.Links.LinkedIn}}<span class="separator">•</span>
-                <span><a href="https://{{.PersonalInformation.Links.LinkedIn}}">LinkedIn</a></span>{{end}}
-
-                {{if .PersonalInformation.Links.Portfolio}}<span class="separator">•</span>
-                <span><a href="https://{{.PersonalInformation.Links.Portfolio}}">Portfolio</a></span>{{end}}
-            </div>
-        </header>
-
-        <!-- SUMMARY -->
-        {{if .Summary}}
-        <div class="section">
-            <div class="summary">{{.Summary}}</div>
-        </div>
+        {{if .PersonalInformation.Email}}
+        <span class="sep">•</span>
+        <span><a href="mailto:{{.PersonalInformation.Email}}">{{.PersonalInformation.Email}}</a></span>
         {{end}}
 
-        <!-- TECHNICAL SKILLS -->
-        <div class="section">
-            <h2>Technical Skills</h2>
-            <div class="skills-grid">
-                {{if .Skills.Languages}}
-                <div class="skill-row">
-                    <div class="skill-category">Languages</div>
-                    <div class="skill-list">{{join .Skills.Languages ", "}}</div>
-                </div>
-                {{end}}
-
-                {{if .Skills.Frontend}}
-                <div class="skill-row">
-                    <div class="skill-category">Frontend</div>
-                    <div class="skill-list">{{join .Skills.Frontend ", "}}</div>
-                </div>
-                {{end}}
-
-                {{if .Skills.Backend}}
-                <div class="skill-row">
-                    <div class="skill-category">Backend</div>
-                    <div class="skill-list">{{join .Skills.Backend ", "}}</div>
-                </div>
-                {{end}}
-
-                {{if .Skills.Databases}}
-                <div class="skill-row">
-                    <div class="skill-category">Databases</div>
-                    <div class="skill-list">{{join .Skills.Databases ", "}}</div>
-                </div>
-                {{end}}
-
-                {{if .Skills.DevOpsInfra}}
-                <div class="skill-row">
-                    <div class="skill-category">DevOps & Infra</div>
-                    <div class="skill-list">{{join .Skills.DevOpsInfra ", "}}</div>
-                </div>
-                {{end}}
-
-                {{if .Skills.Security}}
-                <div class="skill-row">
-                    <div class="skill-category">Tools</div>
-                    <div class="skill-list">{{join .Skills.Security ", "}}</div>
-                </div>
-                {{end}}
-            </div>
-        </div>
-
-        <!-- PROFESSIONAL EXPERIENCE -->
-        {{if .Experience}}
-        <div class="section">
-            <h2>Experience</h2>
-            {{range .Experience}}
-            <div class="item">
-                <div class="item-header">
-                    <div>
-                        <span class="item-title">{{.Role}}</span>
-                        <span style="margin: 0 6px; color: var(--border);">|</span>
-                        <span class="item-subtitle">{{.Company}}{{if .Location}}, {{.Location}}{{end}}</span>
-                    </div>
-                    <div class="item-date">{{.Duration}}</div>
-                </div>
-                <ul>
-                    {{range .Responsibilities}}
-                    <li>{{.}}</li>
-                    {{end}}
-                </ul>
-                {{if .TechStack}}
-                <div class="tech-stack"><span class="tech-label">Environment:</span> {{join .TechStack ", "}}</div>
-                {{end}}
-            </div>
-            {{end}}
-        </div>
+        {{if .PersonalInformation.Phone}}
+        <span class="sep">•</span>
+        <span>{{.PersonalInformation.Phone}}</span>
         {{end}}
 
-        <!-- PROJECTS -->
-        {{if .Projects}}
-        <div class="section">
-            <h2>Projects</h2>
-            {{range .Projects}}
-            <div class="item">
-                <div class="item-header">
-                    <div>
-                        <span class="item-title">{{.Name}}</span>
-                        {{if .URL}}
-                        <span class="url-link" style="margin-left: 6px;">(<a
-                                href="https://{{.URL}}">{{.URL}}</a>)</span>
-                        {{end}}
-                    </div>
-                    {{if .Duration}}
-                    <div class="item-date">{{.Duration}}</div>
-                    {{end}}
-                </div>
-                {{if .Description}}
-                <div style="font-size: 10.5pt; margin-top: 4px; text-align: justify;">{{.Description}}</div>
-                {{end}}
-                {{if .Details}}
-                <ul>
-                    {{range .Details}}
-                    <li>{{.}}</li>
-                    {{end}}
-                </ul>
-                {{end}}
-                {{if .Status}}
-                <div class="tech-stack"><span class="tech-label">Role Context:</span> {{.Status}}</div>
-                {{end}}
-            </div>
-            {{end}}
-        </div>
+        {{if .PersonalInformation.Links.LinkedIn}}
+        <span class="sep">•</span>
+        <span><a href="https://{{.PersonalInformation.Links.LinkedIn}}">{{.PersonalInformation.Links.LinkedIn}}</a></span>
         {{end}}
 
-        <!-- EDUCATION -->
-        {{if .Education.Degree}}
-        <div class="section" style="margin-bottom: 12px;">
-            <h2>Education</h2>
-            <div class="item">
-                <div class="item-header">
-                    <div>
-                        <span class="item-title">{{.Education.Degree}}</span>
-                        <span style="margin: 0 6px; color: var(--border);">|</span>
-                        <span class="item-subtitle">{{.Education.Institution}}{{if .Education.Location}},
-                            {{.Education.Location}}{{end}}</span>
-                    </div>
-                    <div class="item-date">{{.Education.GraduationYear}}</div>
-                </div>
-                {{if .Education.GPA}}
-                <div style="font-size: 9.5pt; margin-top:2px; color: var(--secondary); font-weight: 500;">GPA:
-                    {{.Education.GPA}}</div>
-                {{end}}
-            </div>
-        </div>
+        {{if .PersonalInformation.Links.Portfolio}}
+        <span class="sep">•</span>
+        <span><a href="https://{{.PersonalInformation.Links.Portfolio}}">{{.PersonalInformation.Links.Portfolio}}</a></span>
         {{end}}
-
-        <!-- CERTIFICATIONS -->
-        {{if .Certifications}}
-        <div class="section">
-            <h2>Certifications & Awards</h2>
-            {{range .Certifications}}
-            <div class="item" style="margin-bottom: 6px;">
-                <div class="item-header">
-                    <div>
-                        <span class="item-title">{{.Name}}</span>
-                        {{if .Band}}
-                        <span style="font-weight: 500; color: var(--secondary);"> (Score: {{.Band}})</span>
-                        {{end}}
-                        <span style="margin: 0 6px; color: var(--border);">|</span>
-                        <span class="item-subtitle">{{.Issuer}}</span>
-                    </div>
-                    {{if .Year}}
-                    <div class="item-date">{{.Year}}</div>
-                    {{end}}
-                </div>
-                {{if .Details}}
-                <div style="font-size: 9.5pt; color: var(--secondary); margin-top: 2px;">{{.Details}}</div>
-                {{end}}
-            </div>
-            {{end}}
-        </div>
-        {{end}}
-
+      </div>
     </div>
+
+    <!-- SUMMARY -->
+    {{if .Summary}}
+    <section class="section">
+      <div class="section-title">Summary</div>
+      <hr class="rule" />
+      <p class="paragraph">{{.Summary}}</p>
+    </section>
+    {{end}}
+
+    <!-- SKILLS -->
+    <section class="section">
+      <div class="section-title">Skills</div>
+      <hr class="rule" />
+      <ul class="skills">
+        {{if .Skills.Languages}}
+        <li class="skill-line"><span class="label">Languages:</span> <span class="value">{{join .Skills.Languages ", "}}</span></li>
+        {{end}}
+
+        {{if .Skills.Frontend}}
+        <li class="skill-line"><span class="label">Frontend:</span> <span class="value">{{join .Skills.Frontend ", "}}</span></li>
+        {{end}}
+
+        {{if .Skills.Backend}}
+        <li class="skill-line"><span class="label">Backend:</span> <span class="value">{{join .Skills.Backend ", "}}</span></li>
+        {{end}}
+
+        {{if .Skills.Databases}}
+        <li class="skill-line"><span class="label">Databases:</span> <span class="value">{{join .Skills.Databases ", "}}</span></li>
+        {{end}}
+
+        {{if .Skills.DevOpsInfra}}
+        <li class="skill-line"><span class="label">DevOps &amp; Infra:</span> <span class="value">{{join .Skills.DevOpsInfra ", "}}</span></li>
+        {{end}}
+
+        {{if .Skills.Security}}
+        <li class="skill-line"><span class="label">Security:</span> <span class="value">{{join .Skills.Security ", "}}</span></li>
+        {{end}}
+      </ul>
+    </section>
+
+    <!-- EXPERIENCE -->
+    {{if .Experience}}
+    <section class="section">
+      <div class="section-title">Experience</div>
+      <hr class="rule" />
+
+      {{range .Experience}}
+      <div class="item avoid-break">
+        <p class="item-title">{{.Role}}</p>
+        <div class="item-subline">
+          <div class="left">{{.Company}}{{if .Location}}, {{.Location}}{{end}}</div>
+          <div class="right">{{.Duration}}</div>
+        </div>
+
+        {{if .Responsibilities}}
+        <ul class="bullets">
+          {{range .Responsibilities}}
+          <li>{{.}}</li>
+          {{end}}
+        </ul>
+        {{end}}
+
+        {{if .TechStack}}
+        <div class="tech"><span class="label">Tech Stack:</span> {{join .TechStack ", "}}</div>
+        {{end}}
+      </div>
+      {{end}}
+    </section>
+    {{end}}
+
+    <!-- PROJECTS -->
+    {{if .Projects}}
+    <section class="section">
+      <div class="section-title">Project</div>
+      <hr class="rule" />
+
+      {{range .Projects}}
+      <div class="item avoid-break">
+        <p class="item-title">{{.Name}}</p>
+
+        {{if .URL}}
+        <div class="project-link">
+          <a href="https://{{.URL}}">{{.URL}}</a>
+          {{if .Duration}}<span class="sep">•</span> <span>{{.Duration}}</span>{{end}}
+        </div>
+        {{else}}
+        {{if .Duration}}
+        <div class="project-link">{{.Duration}}</div>
+        {{end}}
+        {{end}}
+
+        {{if .Description}}
+        <p class="paragraph" style="margin-top: 4px;">{{.Description}}</p>
+        {{end}}
+
+        {{if .Details}}
+        <ul class="bullets">
+          {{range .Details}}
+          <li>{{.}}</li>
+          {{end}}
+        </ul>
+        {{end}}
+
+        {{if .TechStack}}
+        <div class="tech"><span class="label">Tech Stack:</span> {{join .TechStack ", "}}</div>
+        {{end}}
+      </div>
+      {{end}}
+    </section>
+    {{end}}
+
+    <!-- EDUCATION -->
+    {{if .Education.Degree}}
+    <section class="section">
+      <div class="section-title">Education</div>
+      <hr class="rule" />
+
+      <div class="item avoid-break">
+        <p class="item-title">{{.Education.Degree}}</p>
+        <div class="item-subline">
+          <div class="left">{{.Education.Institution}}{{if .Education.Location}}, {{.Education.Location}}{{end}}</div>
+          <div class="right">{{.Education.GraduationYear}}</div>
+        </div>
+        {{if .Education.GPA}}
+        <div class="tech" style="margin-top: 3px;"><span class="label">GPA:</span> {{.Education.GPA}}</div>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
+
+    <!-- CERTIFICATIONS -->
+    {{if .Certifications}}
+    <section class="section">
+      <div class="section-title">Certifications</div>
+      <hr class="rule" />
+
+      {{range .Certifications}}
+      <div class="item avoid-break" style="margin-bottom: 6px;">
+        <p class="item-title">{{.Name}}</p>
+        <div class="item-subline">
+          <div class="left">{{.Issuer}}</div>
+          <div class="right">{{.Year}}</div>
+        </div>
+        {{if .Details}}
+        <div class="tech" style="margin-top: 3px;">{{.Details}}</div>
+        {{end}}
+      </div>
+      {{end}}
+    </section>
+    {{end}}
+
+  </div>
 </body>
 
 </html>

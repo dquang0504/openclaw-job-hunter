@@ -1,0 +1,11 @@
+# Binaries
+server
+scraper
+
+# Resumes and generated PDFs
+resumes/*.pdf
+*.pdf
+
+# Local knowledge files
+base-knowledge.json
+base-resume.json

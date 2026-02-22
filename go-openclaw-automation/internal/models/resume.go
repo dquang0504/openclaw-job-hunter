@@ -38,6 +38,7 @@ type Project struct {
 	Duration    string   `json:"duration,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Details     []string `json:"details,omitempty"`
+	TechStack   []string `json:"tech_stack,omitempty"` // used in template {{if .TechStack}}
 	Status      string   `json:"status,omitempty"`
 }
 
@@ -54,7 +55,7 @@ type Certification struct {
 	Band    float64 `json:"band,omitempty"`
 	Details string  `json:"details,omitempty"`
 	Issuer  string  `json:"issuer"`
-	Year    int     `json:"year"`
+	Year    int     `json:"year,omitempty"`
 }
 
 type Resume struct {
