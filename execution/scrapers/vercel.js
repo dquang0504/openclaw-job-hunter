@@ -43,7 +43,16 @@ async function scrapeVercel(page, reporter) {
         try {
             await page.waitForTimeout(2000);
             await page.waitForSelector('text=Visitors', { timeout: 10000 });
-        } catch (e) { }
+
+            // 3. Select 'Last 24 Hours' filter
+            console.log(`  👉 Selecting 'Last 24 Hours' filter`);
+            await page.click('input[data-testid="calendar/combobox-input"]');
+            await page.waitForTimeout(1000); // Wait for dropdown to open
+            await page.click('div[data-value="Last 24 Hours"]');
+            await page.waitForTimeout(2000); // Wait for data to update
+        } catch (e) {
+            console.log(`  ⚠️ Failed to select 'Last 24 Hours' filter: ${e.message}`);
+        }
 
         // Check login - wrap in try-catch to handle closed page/browser
         try {
