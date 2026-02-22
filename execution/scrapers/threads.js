@@ -151,7 +151,7 @@ function extractPostsFromJSON(data) {
                     text: caption,
                     username: user,
                     timestamp: takenAt, // Keep raw timestamp
-                    url: `https://www.threads.net/@${user}/post/${post.code || postId}`,
+                    url: `https://www.threads.com/@${user}/post/${post.code || postId}`,
                     is_paid_partnership: post.is_paid_partnership,
                     source_type: 'JSON'
                 });
@@ -197,7 +197,7 @@ async function scrapeKeyword(page, keyword, reporter) {
     page.on('response', responseListener);
 
     try {
-        const searchUrl = `https://www.threads.net/search?q=${encodeURIComponent(keyword)}&serp_type=default&filter=recent`;
+        const searchUrl = `https://www.threads.com/search?q=${encodeURIComponent(keyword)}&serp_type=default&filter=recent`;
         console.log(`\n  🔍 Searching: "${keyword}" (Target: ~${TARGET_POSTS_PER_KEYWORD} posts)`);
 
         await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -260,7 +260,7 @@ async function scrapeKeyword(page, keyword, reporter) {
                         username = userEl.getAttribute('href').replace('/@', '').replace('/', '');
                     } else {
                         // Fallback: try to match from URL
-                        // url is like https://www.threads.net/@username/post/ID
+                        // url is like https://www.threads.com/@username/post/ID
                         const match = url.match(/@([^/]+)/);
                         if (match) username = match[1];
                     }
@@ -325,7 +325,7 @@ async function scrapeKeyword(page, keyword, reporter) {
                 jobs.push({
                     title: textRaw.split('\n')[0].slice(0, 100) || 'Golang Opportunity',
                     company: `@${post.username}`,
-                    url: post.url || `https://threads.net/search?q=${encodeURIComponent(textRaw.slice(0, 20))}`,
+                    url: post.url || `https://threads.com/search?q=${encodeURIComponent(textRaw.slice(0, 20))}`,
                     preview: textRaw.slice(0, 200).trim(),
                     salary: salary,
                     location: location,
@@ -407,7 +407,7 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
     // --- LOGIN CHECK / SESSION RESTORE ---
     try {
         console.log('  🔐 Checking authentication status...');
-        await page.goto('https://www.threads.net/', { waitUntil: 'domcontentloaded' });
+        await page.goto('https://www.threads.com/', { waitUntil: 'domcontentloaded' });
         await randomDelay(2000, 3000);
 
         // Check for "Log in" or "Log in with Instagram" buttons

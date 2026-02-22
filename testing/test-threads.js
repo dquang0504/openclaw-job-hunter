@@ -18,15 +18,29 @@ async function testThreads() {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled'
+            '--disable-blink-features=AutomationControlled',
+            '--disable-infobars',
+            '--disable-dev-shm-usage',
+            '--disable-extensions',
+            '--ignore-certificate-errors',
+            '--lang=vi-VN,vi'
         ]
     });
 
     const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         viewport: { width: 1366, height: 768 },
         locale: 'vi-VN',
-        timezoneId: 'Asia/Ho_Chi_Minh'
+        timezoneId: 'Asia/Ho_Chi_Minh',
+        extraHTTPHeaders: {
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+            'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
+            // NOTE: Không set 'Upgrade-Insecure-Requests', 'Accept', 'Sec-Fetch-*' thủ công!
+            // Các header đó khi set thủ công sẽ bị gửi trong CORS preflight
+            // → CDN Instagram block → trang trắng.
+        }
     });
 
     // Load Threads cookies
@@ -62,7 +76,15 @@ async function testThreads() {
 
     // Verify login status
     console.log('🔐 Verifying login status...');
-    await page.goto('https://www.threads.net/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try {
+        await page.goto('https://www.threads.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (e) {
+        // ERR_HTTP_RESPONSE_CODE_FAILURE: Threads may redirect or block, try waiting for URL change
+        console.log(`  ⚠️ goto error (${e.message.split('\n')[0]}), waiting for page to settle...`);
+        try {
+            await page.waitForURL('**', { timeout: 10000 });
+        } catch (_) { }
+    }
     await page.waitForTimeout(3000);
 
     const currentUrl = page.url();
