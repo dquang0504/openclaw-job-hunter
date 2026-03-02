@@ -61,6 +61,7 @@ jobs:
             logs/seen-jobs.json
             logs/rophim-cache.json
             logs/vercel-cache.json
+            logs/cloudflare-cache.json
           key: logs-${{ github.run_id }}
           restore-keys: |
             logs-
@@ -88,6 +89,14 @@ jobs:
         with:
           name: cache-vercel
           path: logs/vercel-cache.json
+          retention-days: 1
+
+      - name: Upload cloudflare-cache
+        if: ${{ contains(matrix.arg, 'cloudflare') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-cloudflare
+          path: logs/cloudflare-cache.json
           retention-days: 1
 
       - name: Upload logs (optional)
@@ -155,6 +164,12 @@ jobs:
             cp .tmp/artifacts/cache-vercel/vercel-cache.json logs/vercel-cache.json
           fi
 
+          # Restore updated Cloudflare cache if exists
+          if [ -f .tmp/artifacts/cache-cloudflare/cloudflare-cache.json ]; then
+            echo "Updating cloudflare-cache.json"
+            cp .tmp/artifacts/cache-cloudflare/cloudflare-cache.json logs/cloudflare-cache.json
+          fi
+
       - name: Save Final Cache
         uses: actions/cache/save@v4
         if: always()
@@ -163,4 +178,5 @@ jobs:
             logs/seen-jobs.json
             logs/rophim-cache.json
             logs/vercel-cache.json
+            logs/cloudflare-cache.json
           key: logs-${{ github.run_id }}

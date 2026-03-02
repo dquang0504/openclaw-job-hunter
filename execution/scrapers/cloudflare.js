@@ -7,6 +7,7 @@ const axios = require('axios');
 const fs = require('fs');
 const crypto = require('crypto');
 const CONFIG = require('../config');
+const { getTodayVN } = require('../utils/date');
 
 async function scrapeCloudflare(reporter) {
   if (!CONFIG.cloudflare.apiToken) {
@@ -136,6 +137,7 @@ async function scrapeCloudflare(reporter) {
     // Load Cache
     let cachedData = {
       hash: null,
+      lastSentDate: null,  // YYYY-MM-DD in VN timezone — key field for day-based reset
       timestamp: null,
       totalRequests: 0,
       stats: {}
@@ -149,49 +151,52 @@ async function scrapeCloudflare(reporter) {
       }
     }
 
-    // --- COMPARISON LOGIC ---
-    // Primary check: Has the data hash changed?
+    // --- DECISION LOGIC ---
+    // "Found at" should use VN timezone for consistency
+    const todayVN = getTodayVN(); // e.g. "2026-03-02"
+    const isNewDay = cachedData.lastSentDate !== todayVN;
     const isDataChanged = currentHash !== cachedData.hash;
 
-    // Secondary check: Is there actual traffic to report?
+    // Also check if there is actual traffic to report
     const hasTraffic = totalRequests > 0;
 
-    // Only notify if:
-    // 1. Data has actually changed (different hash)
-    // 2. AND there is traffic to report (avoid spam for zero traffic)
-    const shouldNotify = isDataChanged && hasTraffic;
+    // SEND if:
+    //  A) traffic really changed (hash differs) AND there's traffic → always send
+    //  B) brand new day AND there's traffic → send once-per-day summary even if same numbers
+    // DO NOT send if: same hash + same day (avoids 4h repeated identical notification)
+    const shouldNotify = hasTraffic && (isDataChanged || isNewDay);
+
+    console.log(`  📋 Cache check → today: ${todayVN}, lastSentDate: ${cachedData.lastSentDate || 'never'}, hashChanged: ${isDataChanged}, newDay: ${isNewDay}, hasTraffic: ${hasTraffic}`);
 
     if (shouldNotify) {
-      // Check if any worker has significant traffic (> 0) to avoid noisy notifications for 0
-      const hasTraffic = totalRequests > 0;
+      const reason = isDataChanged ? '📈 Traffic changed' : '🗓️ New day — daily summary';
+      console.log(`  🔔 Notifying: ${reason}`);
+      console.log(`     Data Hash: ${currentHash.substring(0, 12)}... (Old: ${cachedData.hash?.substring(0, 12) || 'none'}...)`);
+      console.log(`     Latest TS: ${latestTimestamp || 'N/A'} (Old: ${cachedData.timestamp || 'N/A'})`);
+      console.log(`     Requests:  ${totalRequests} (Old: ${cachedData.totalRequests})`);
 
-      if (hasTraffic) {
-        console.log('  🔔 New Cloudflare activity detected!');
-        console.log(`     Data Hash: ${currentHash.substring(0, 12)}... (Old: ${cachedData.hash?.substring(0, 12) || 'none'}...)`);
-        console.log(`     Latest TS: ${latestTimestamp || 'N/A'} (Old: ${cachedData.timestamp || 'N/A'})`);
-        console.log(`     Requests:  ${totalRequests} (Old: ${cachedData.totalRequests})`);
-
-        let msg = '🌩️ *Cloudflare Workers Report* (24h)\n';
-        for (const [name, stats] of Object.entries(currentStats)) {
-          msg += `\n📦 *${name}*:\n  • Requests: \`${stats.requests}\`\n  • Errors: \`${stats.errors}\``;
-        }
-
-        await reporter.sendStatus(msg);
-
-        // Update Cache with new hash and data
-        const newCache = {
-          hash: currentHash,
-          timestamp: latestTimestamp || new Date().toISOString(),
-          totalRequests,
-          stats: currentStats
-        };
-        fs.writeFileSync(CONFIG.paths.cloudflareCache, JSON.stringify(newCache, null, 2));
-        console.log('  ✅ Cache updated with new hash.');
-      } else {
-        console.log('  💤 No significant traffic (all zeros). Skipping notification.');
+      let msg = `🌩️ *Cloudflare Workers Report* (24h)\n_Reason: ${reason}_\n`;
+      for (const [name, stats] of Object.entries(currentStats)) {
+        msg += `\n📦 *${name}*:\n  • Requests: \`${stats.requests}\`\n  • Errors: \`${stats.errors}\``;
       }
+
+      await reporter.sendStatus(msg);
+
+      // Update cache — always record the date we last sent
+      const newCache = {
+        hash: currentHash,
+        lastSentDate: todayVN,
+        timestamp: latestTimestamp || new Date().toISOString(),
+        totalRequests,
+        stats: currentStats
+      };
+      fs.writeFileSync(CONFIG.paths.cloudflareCache, JSON.stringify(newCache, null, 2));
+      console.log(`  ✅ Cache updated (hash + lastSentDate → ${todayVN}).`);
+    } else if (!hasTraffic) {
+      console.log('  💤 No traffic in last 24h. Skipping notification.');
     } else {
-      console.log('  💤 Cloudflare data unchanged (same hash). Skipping duplicate notification.');
+      // Same hash AND same day → absolute skip
+      console.log(`  💤 Cloudflare data unchanged and already reported today (${todayVN}). Skipping.`);
     }
 
   } catch (e) {
