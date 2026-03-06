@@ -12,7 +12,6 @@ async function scrapeVercel(page, reporter) {
     const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     try {
-        const preVisitUrl = 'https://vercel.com/dquang0504s-projects/my-portfolio/deployments';
         const targetUrl = 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h';
 
         // Load Cache
@@ -25,33 +24,17 @@ async function scrapeVercel(page, reporter) {
             }
         }
 
-        // 1. Visit Deployments page first (Warm up)
-        console.log(`  🚀 Pre-visiting: ${preVisitUrl}`);
-        await page.goto(preVisitUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // 1. Visit Analytics page directly
+        console.log(`  🚀 Visiting Analytics: ${targetUrl}`);
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         // Wait for DOM content loaded and hydration
         try {
             await page.waitForLoadState('domcontentloaded');
-            await page.waitForTimeout(2000);
-        } catch (e) { }
-
-        // 2. Click the Analytics link
-        console.log(`  👉 Clicking Analytics link`);
-        await page.click('a[data-testid="sub-menu-link/analytics"]');
-
-        // Wait for hydration (reduced from 3s to 2s)
-        try {
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(4000);
             await page.waitForSelector('text=Visitors', { timeout: 10000 });
-
-            // 3. Select 'Last 24 Hours' filter
-            console.log(`  👉 Selecting 'Last 24 Hours' filter`);
-            await page.click('input[data-testid="calendar/combobox-input"]');
-            await page.waitForTimeout(1000); // Wait for dropdown to open
-            await page.click('div[data-value="Last 24 Hours"]');
-            await page.waitForTimeout(2000); // Wait for data to update
         } catch (e) {
-            console.log(`  ⚠️ Failed to select 'Last 24 Hours' filter: ${e.message}`);
+            console.log(`  ⚠️ Failed to wait for Visitors text: ${e.message}`);
         }
 
         // Check login - wrap in try-catch to handle closed page/browser

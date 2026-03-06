@@ -55,6 +55,11 @@ async function scrapeTopDev(page, reporter) {
                 console.log(`    🔍 DEBUG: Page title: ${pageTitle}`);
                 console.log(`    🔍 DEBUG: Current URL: ${currentUrl}`);
 
+                if (/Recruiting\s+0\s+/i.test(pageTitle)) {
+                    console.log(`    ⏭️ Skipping: 0 positions found according to page title`);
+                    continue;
+                }
+
                 // ANTI-BOT: Check for Cloudflare challenge
                 if (pageTitle.includes('Just a moment') || pageTitle.includes('Checking your browser')) {
                     console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire TopDev scraper...');
