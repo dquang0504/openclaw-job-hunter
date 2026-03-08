@@ -20,7 +20,7 @@ class ScreenshotDebugger {
     /**
      * Capture screenshot and send to Telegram
      * @param {Page} page - Playwright page object
-     * @param {string} context - Context/reason for screenshot (e.g., "topcv-cloudflare")
+     * @param {string} context - Context/reason for screenshot (e.g., "topdev-cloudflare")
      * @param {string} message - Optional message to send with screenshot
      */
     async captureAndSend(page, context, message = '') {

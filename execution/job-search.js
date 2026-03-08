@@ -27,7 +27,6 @@ const { calculateMatchScore } = require('./lib/filters');
 const { formatDateTime } = require('./utils/date');
 
 // Import scrapers
-const { scrapeTopCV } = require('./scrapers/topcv');
 const { scrapeTwitter } = require('./scrapers/twitter');
 const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
 const { scrapeFacebook } = require('./scrapers/facebook');
@@ -64,12 +63,9 @@ async function main() {
 
     const reporter = new TelegramReporter();
 
-    // Use headless: false for topdev, topcv, itviec (they need UI for filters)
-    // xvfb-run in GitHub Actions provides virtual display
-    // Use headless: false for topdev, topcv, itviec (they need UI for filters)
+    // Use headless: false for topdev, itviec (they need UI for filters)
     // xvfb-run in GitHub Actions provides virtual display
     const needsHeadful = shouldRun('topdev') || shouldRun('itviec');
-    // NOTE: TopCV has been switched to headless: true for testing as requested
 
     const browser = await chromium.launch({
         headless: false,
@@ -89,7 +85,7 @@ async function main() {
         ]
     });
 
-    // Regular context for TopCV and Twitter
+    // Regular context for Twitter
     // Using Desktop User Agent (matches debug-browser.js success)
     const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
     console.log(`🕵️ Using User-Agent: ${userAgent}`);
@@ -128,7 +124,6 @@ async function main() {
 
     // Load cookies
     const cookieFiles = {
-        topcv: path.join(CONFIG.paths.cookies, 'cookies-topcv.json'),
         twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json'),
         linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json'),
         facebook: path.join(CONFIG.paths.cookies, 'cookies-facebook.json'),
@@ -175,12 +170,6 @@ async function main() {
         // =====================================================================
         // STEP 1: SCRAPE ALL PLATFORMS (collect raw jobs)
         // =====================================================================
-
-        // Scrape TopCV
-        if (shouldRun('topcv')) {
-            const topcvJobs = await scrapeTopCV(page, reporter);
-            allRawJobs = allRawJobs.concat(topcvJobs.map((j, i) => ({ ...j, id: `topcv-${i}` })));
-        }
 
         // Scrape Twitter
         if (shouldRun('twitter')) {
