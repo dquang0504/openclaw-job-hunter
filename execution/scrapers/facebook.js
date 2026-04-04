@@ -4,18 +4,106 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings, idleBehavior } = require('../lib/stealth');
-const { calculateMatchScore, shouldIncludeJob } = require('../lib/filters');
+const { calculateMatchScore } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
+const { extractDateCandidate, getJobFreshnessInfo } = require('../utils/date');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
  */
 const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+function getFreshnessInfo(dateText, allowUnknownRecent = false) {
+    return getJobFreshnessInfo(dateText, {
+        freshnessDays: CONFIG.jobFreshnessDays,
+        allowUnknownRecent
+    });
+}
+
+async function resolveFacebookPostDate(detailPage, fallbackTime) {
+    const fallbackInfo = getFreshnessInfo(fallbackTime, false);
+    if (fallbackInfo.isKnown) {
+        return fallbackTime;
+    }
+
+    const candidateTexts = await detailPage.evaluate(() => {
+        const values = [];
+        const seen = new Set();
+
+        const push = (value) => {
+            const clean = (value || '').replace(/\s+/g, ' ').trim();
+            if (!clean || clean.length > 140 || seen.has(clean)) return;
+            seen.add(clean);
+            values.push(clean);
+        };
+
+        document.querySelectorAll('a[aria-label], span[aria-label], div[aria-label]').forEach((element) => {
+            push(element.getAttribute('aria-label'));
+        });
+
+        document.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/groups/"]').forEach((element) => {
+            push(element.textContent);
+            push(element.getAttribute('aria-label'));
+        });
+
+        return values.slice(0, 200);
+    });
+
+    for (const candidateText of candidateTexts) {
+        const candidate = extractDateCandidate(candidateText) || candidateText;
+        const info = getFreshnessInfo(candidate, false);
+        if (info.isKnown) {
+            if (candidate !== fallbackTime) {
+                console.log(`      🕒 Resolved detail timestamp: "${candidate}"`);
+            }
+            return candidate;
+        }
+    }
+
+    return fallbackTime;
+}
+
+async function waitForFacebookDetailReady(detailPage) {
+    const detailSignals = [
+        'div[data-ad-rendering-role="story_message"]',
+        'div[role="article"]',
+        'div[role="main"]'
+    ];
+
+    const start = Date.now();
+    let lastSnapshot = '';
+    let stableReads = 0;
+
+    while (Date.now() - start < 8000) {
+        for (const selector of detailSignals) {
+            const locator = detailPage.locator(selector).first();
+            if (await locator.count() === 0) continue;
+
+            const text = (await locator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+            if (!text || text.length < 80) continue;
+
+            if (text === lastSnapshot) {
+                stableReads += 1;
+            } else {
+                lastSnapshot = text;
+                stableReads = 1;
+            }
+
+            if (stableReads >= 2) {
+                return true;
+            }
+        }
+
+        await detailPage.waitForTimeout(750);
+    }
+
+    return false;
+}
+
 /**
  * Scrape Facebook Groups using authenticated Search URL
- * @param {import('playwright').Page} page 
- * @param {import('../lib/telegram')} reporter 
+ * @param {import('playwright').Page} page
+ * @param {import('../lib/telegram')} reporter
  */
 async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     console.log('📘 Searching Facebook Groups (Authenticated)...');
@@ -25,6 +113,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
 
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
+    const staleUrls = new Set();
     const context = page.context();
 
     // --- WARM UP PHASE ---
@@ -170,7 +259,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                                     }
 
                                     // 4. Refinement Logic (PPC - Pixels Per Char)
-                                    const PPC = 5;
+                                    const PPC = 3;
                                     let addLeftPx = 0;
                                     let addRightPx = 0;
 
@@ -288,6 +377,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
 
                 processedUrls.add(postUrl);
 
+                const feedFreshness = getFreshnessInfo(jobTime, false);
+                if (feedFreshness.isKnown && feedFreshness.isStale) {
+                    staleUrls.add(postUrl);
+                    console.log(`      🗂️ Marked stale from feed date (${jobTime})`);
+                    continue;
+                }
+
                 console.log(`    🔍 Inspecting Post ${i + 1}/${maxPostsToCheck}: ${postUrl}`);
 
                 // OPEN NEW TAB
@@ -298,6 +394,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
 
                     // Navigate and wait longer
                     await detailPage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    await detailPage.waitForTimeout(1500);
 
                     // Wait for main content container specifically
                     try {
@@ -320,6 +417,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                         } catch (err) {
                             console.log(`      ⚠️ Content timeout, proceeding...`);
                         }
+                    }
+
+                    const detailSettled = await waitForFacebookDetailReady(detailPage);
+                    if (!detailSettled) {
+                        console.log('      ⚠️ Detail content did not fully stabilize before extraction.');
+                    } else {
+                        console.log('      ⏳ Detail content stabilized.');
                     }
 
                     // SIMULATE READING BEHAVIOR (OPTIMIZED)
@@ -373,6 +477,14 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                         console.log(`      ✂️ Truncated noise up to "${lastMatch[0]}".`);
                     }
 
+                    jobTime = await resolveFacebookPostDate(detailPage, jobTime);
+                    const detailFreshness = getFreshnessInfo(jobTime, false);
+                    if (detailFreshness.isKnown && detailFreshness.isStale) {
+                        staleUrls.add(postUrl);
+                        console.log(`      🗂️ Marked stale from detail date (${jobTime})`);
+                        continue;
+                    }
+
                     // LOGGING REQUIRED BY USER
                     const contentSnippet = bodyText.slice(-300).replace(/\n/g, ' '); // Last 300 chars
                     console.log(`      📝 Post Details:`);
@@ -401,8 +513,6 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     // === FILTER IMMEDIATELY & LOG REASON ===
                     // Use FULL text for filtering
                     const filterText = `${job.title} ${fullDescription}`.toLowerCase();
-                    const currentYear = new Date().getFullYear();
-
                     // 1. Keyword Check
                     if (!CONFIG.keywordRegex.test(filterText)) {
                         console.log(`      ❌ Filtered out: Missing Keyword (Golang)`);
@@ -420,14 +530,12 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                         continue;
                     }
 
-                    // 3. Date Check (Strict 2026/Recent)
-                    if (jobTime !== 'Recent' && !jobTime.includes(currentYear.toString())) {
-                        // Double check if it's late previous year (e.g. Dec 2025 in Jan 2026) -> Handled by isRecentJob but here we are strict for log
-                        const isRecent = require('../lib/filters').isRecentJob(jobTime);
-                        if (!isRecent) {
-                            console.log(`      ❌ Filtered out: Old Date (${jobTime})`);
-                            continue;
-                        }
+                    // 3. Date Check (strict 7-day freshness window)
+                    const freshnessInfo = getFreshnessInfo(jobTime, true);
+                    if (freshnessInfo.isKnown && !freshnessInfo.isFresh) {
+                        staleUrls.add(postUrl);
+                        console.log(`      ❌ Filtered out: Old Date (${jobTime})`);
+                        continue;
                     }
 
                     // Determine Location (Updated Logic: Hanoi allowed if valid location also exists)
@@ -472,7 +580,10 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     }
 
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-    return uniqueJobs;
+    return {
+        jobs: uniqueJobs,
+        staleUrls: Array.from(staleUrls)
+    };
 }
 
 module.exports = { scrapeFacebook };

@@ -164,7 +164,24 @@ async function main() {
 
     const page = await context.newPage();
     const seenJobs = loadSeenJobs(); // Pre-load seen jobs for optimization
+    const seenEntriesToPersist = new Map();
     let allRawJobs = [];  // Raw jobs before AI validation
+
+    const queueSeenEntries = (items, status) => {
+        const now = Date.now();
+        for (const item of items || []) {
+            const entry = typeof item === 'string'
+                ? { url: item, timestamp: now, status }
+                : { ...item, timestamp: item.timestamp || now, status: item.status || status };
+
+            if (!entry.url) continue;
+
+            const existing = seenEntriesToPersist.get(entry.url);
+            if (!existing || entry.timestamp >= existing.timestamp) {
+                seenEntriesToPersist.set(entry.url, entry);
+            }
+        }
+    };
 
     try {
         // =====================================================================
@@ -186,8 +203,9 @@ async function main() {
 
         // Scrape Facebook
         if (shouldRun('facebook')) {
-            const fbJobs = await scrapeFacebook(page, reporter, seenJobs);
+            const { jobs: fbJobs, staleUrls: fbStaleUrls } = await scrapeFacebook(page, reporter, seenJobs);
             allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
+            queueSeenEntries(fbStaleUrls, 'stale');
         }
 
         // Scrape Threads
@@ -333,9 +351,7 @@ async function main() {
                 sentUrls.push(job.url);
             }
 
-            if (!isDryRun && sentUrls.length > 0) {
-                saveSeenJobs(sentUrls);
-            }
+            queueSeenEntries(sentUrls, 'sent');
 
             await reporter.sendStatus(`✅ Tìm được ${validatedNewJobs.length} jobs mới valid, đã gửi ${jobsToSend.length} jobs.`);
         }
@@ -344,6 +360,10 @@ async function main() {
         console.error('Fatal error:', error);
         await reporter.sendError(error.message);
     } finally {
+        if (!isDryRun && seenEntriesToPersist.size > 0) {
+            saveSeenJobs(Array.from(seenEntriesToPersist.values()));
+        }
+
         // Save results BEFORE closing browser to avoid "Page/browser was closed" error
         const safeTime = new Date().toISOString().replace(/:/g, '-').split('.')[0];
         const logFile = path.join(CONFIG.paths.logs, `job-search-${safeTime}.json`);

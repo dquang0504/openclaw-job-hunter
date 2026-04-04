@@ -71,8 +71,9 @@ async function runTest() {
     const page = await context.newPage();
 
     try {
-        const jobs = await scrapeFacebook(page, reporter);
+        const { jobs, staleUrls } = await scrapeFacebook(page, reporter);
         console.log(`\n📦 Total Jobs Found: ${jobs.length}`);
+        console.log(`🗂️ Total Stale URLs: ${staleUrls.length}`);
         console.log(JSON.stringify(jobs, null, 2));
 
     } catch (e) {

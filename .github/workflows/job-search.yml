@@ -1,6 +1,10 @@
 # Job Search Automation - Runs every 4 hours
 name: Job Search
 
+concurrency:
+  group: job-search-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   schedule:
     # Runs every 4 hours: 8am, 12pm, 4pm, 8pm, 12am (UTC+7)
@@ -138,6 +142,7 @@ jobs:
             logs/seen-jobs.json
             logs/rophim-cache.json
             logs/vercel-cache.json
+            logs/cloudflare-cache.json
           key: logs-${{ github.run_id }}
           restore-keys: |
             logs-

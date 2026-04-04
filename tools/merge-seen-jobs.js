@@ -20,6 +20,20 @@ if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
 let allJobs = new Map(); // Use Map to deduplicate by URL
 
+function normalizeJob(job) {
+    if (!job) return null;
+    if (typeof job === 'string') {
+        return { url: job, timestamp: Date.now(), status: 'sent' };
+    }
+
+    if (!job.url) return null;
+    return {
+        url: job.url,
+        timestamp: Number.isFinite(job.timestamp) ? job.timestamp : Date.now(),
+        status: job.status || 'sent'
+    };
+}
+
 // Helper to process a file
 function processFile(filePath) {
     try {
@@ -27,9 +41,12 @@ function processFile(filePath) {
         const jobs = JSON.parse(content);
         if (Array.isArray(jobs)) {
             jobs.forEach(job => {
+                const normalized = normalizeJob(job);
+                if (!normalized) return;
+
                 // Keep the latest timestamp if duplicate
-                if (job.url && (!allJobs.has(job.url) || allJobs.get(job.url).timestamp < job.timestamp)) {
-                    allJobs.set(job.url, job);
+                if (!allJobs.has(normalized.url) || allJobs.get(normalized.url).timestamp < normalized.timestamp) {
+                    allJobs.set(normalized.url, normalized);
                 }
             });
             console.log(`  ✅ Loaded ${jobs.length} jobs from ${path.basename(filePath)}`);
@@ -51,6 +68,10 @@ function scanDir(dir) {
             processFile(fullPath);
         }
     }
+}
+
+if (fs.existsSync(OUTPUT_FILE)) {
+    processFile(OUTPUT_FILE);
 }
 
 scanDir(ARTIFACTS_DIR);

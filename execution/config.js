@@ -8,6 +8,8 @@ const CONFIG = {
     keywords: [
         'golang'
     ],
+    jobFreshnessDays: 7,
+    seenJobsRetentionDays: 120,
     keywordRegex: /\b(golang|go\s+developer|go\s+backend|\bGo\b|blockchain)\b/i,
     // Exclude > 2 years
     excludeRegex: /\b(senior|lead|manager|principal|staff|architect|(\d{2,}|[3-9])\s*(\+|plus)?\s*years?|2\+\s*years?)\b/i,
