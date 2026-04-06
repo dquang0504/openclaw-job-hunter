@@ -6,6 +6,39 @@
 const fs = require('fs');
 const path = require('path');
 
+const DEFAULT_CAPTION_LIMIT = 900;
+
+function truncateText(text, maxLength = DEFAULT_CAPTION_LIMIT) {
+    const normalized = `${text || ''}`.replace(/\r/g, '').trim();
+    if (normalized.length <= maxLength) {
+        return normalized;
+    }
+
+    return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function compactErrorMessage(error) {
+    const raw = `${error?.message || error || 'Unknown error'}`.replace(/\r/g, '');
+    const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+
+    if (lines.length === 0) {
+        return 'Unknown error';
+    }
+
+    const compactLines = [];
+    compactLines.push(lines[0]);
+
+    for (const line of lines.slice(1)) {
+        if (line === 'Call log:') continue;
+        if (line.startsWith('-') || line.includes('intercepts pointer events') || line.includes('Timeout')) {
+            compactLines.push(line);
+        }
+        if (compactLines.length >= 4) break;
+    }
+
+    return truncateText(compactLines.join('\n'), 500);
+}
+
 class ScreenshotDebugger {
     constructor(reporter) {
         this.reporter = reporter;
@@ -46,7 +79,7 @@ class ScreenshotDebugger {
 
             // Send to Telegram if reporter available
             if (this.reporter && this.reporter.sendPhoto) {
-                const caption = message || `🔍 Debug Screenshot: ${context}`;
+                const caption = truncateText(message || `🔍 Debug Screenshot: ${context}`);
                 await this.reporter.sendPhoto(filepath, caption);
                 console.log(`📤 Screenshot sent to Telegram`);
             }
@@ -82,9 +115,10 @@ class ScreenshotDebugger {
      */
     async captureError(page, platform, error) {
         const url = page && !page.isClosed() ? page.url() : 'Unknown';
+        const errorSummary = compactErrorMessage(error);
 
         const message = `❌ Error in ${platform} Scraper\n\n` +
-            `Error: ${error.message}\n` +
+            `Error: ${errorSummary}\n` +
             `URL: ${url}`;
 
         return await this.captureAndSend(page, `${platform}-error`, message);

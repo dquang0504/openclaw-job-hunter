@@ -6,6 +6,9 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const { formatDateTime } = require('../utils/date');
 
+const TELEGRAM_MESSAGE_LIMIT = 4000;
+const TELEGRAM_CAPTION_LIMIT = 900;
+
 class TelegramReporter {
     constructor() {
         this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
@@ -53,11 +56,11 @@ class TelegramReporter {
     }
 
     async sendStatus(message) {
-        await this.bot.sendMessage(this.chatId, `ℹ️ ${message}`);
+        await this.bot.sendMessage(this.chatId, this.truncateText(`ℹ️ ${message}`, TELEGRAM_MESSAGE_LIMIT));
     }
 
     async sendError(error) {
-        await this.bot.sendMessage(this.chatId, `❌ Error: ${error}`);
+        await this.bot.sendMessage(this.chatId, this.truncateText(`❌ Error: ${error}`, TELEGRAM_MESSAGE_LIMIT));
     }
 
     async sendPhoto(photoPath, caption = '') {
@@ -66,11 +69,32 @@ class TelegramReporter {
             console.error(`❌ Photo not found: ${photoPath}`);
             return;
         }
-        await this.bot.sendPhoto(this.chatId, photoPath, { caption });
+
+        const safeCaption = this.truncateText(caption, TELEGRAM_CAPTION_LIMIT);
+
+        try {
+            await this.bot.sendPhoto(this.chatId, photoPath, { caption: safeCaption });
+        } catch (error) {
+            if (error.message && error.message.includes('message caption is too long')) {
+                const fallbackCaption = this.truncateText(safeCaption, 256);
+                await this.bot.sendPhoto(this.chatId, photoPath, { caption: fallbackCaption });
+                return;
+            }
+            throw error;
+        }
     }
 
     escapeMarkdown(text) {
         return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+    }
+
+    truncateText(text, maxLength) {
+        const normalized = `${text || ''}`.replace(/\r/g, '').trim();
+        if (normalized.length <= maxLength) {
+            return normalized;
+        }
+
+        return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
     }
 }
 
