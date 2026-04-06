@@ -53,7 +53,8 @@ async function runTest() {
     const page = await context.newPage();
 
     try {
-        const jobs = await scrapeTopDev(page, reporter);
+        const result = await scrapeTopDev(page, reporter);
+        const jobs = Array.isArray(result) ? result : (result.jobs || []);
         console.log(`\n📦 Total Jobs Found: ${jobs.length}`);
         console.log(JSON.stringify(jobs, null, 2));
 

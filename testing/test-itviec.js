@@ -48,7 +48,8 @@ const CONFIG = require('../execution/config');
     };
 
     try {
-        const jobs = await scrapeITViec(page, reporter);
+        const result = await scrapeITViec(page, reporter);
+        const jobs = Array.isArray(result) ? result : (result.jobs || []);
         console.log(`\n📦 Total Jobs Found: ${jobs.length}`);
         console.log(JSON.stringify(jobs.slice(0, 3), null, 2)); // Preview first 3
     } catch (error) {

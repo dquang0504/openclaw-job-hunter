@@ -23,10 +23,10 @@ jobs:
           - name: facebook
             arg: facebook
           - name: threads
-            arg: threads,linkedin
+            arg: threads
           - name: others
             # Groups lighter/faster scrapers together
-            arg: 'topcv,twitter,indeed,vercel,cloudflare,topdev,itviec'
+            arg: 'twitter,indeed,vercel,cloudflare,topdev,itviec'
 
     steps:
       - name: Checkout code
@@ -48,9 +48,7 @@ jobs:
       
       - name: Load cookies from secrets
         run: |
-          echo '${{ secrets.COOKIES_TOPCV }}' > .cookies/cookies-topcv.json
           echo '${{ secrets.COOKIES_TWITTER }}' > .cookies/cookies-twitter.json
-          echo '${{ secrets.COOKIES_LINKEDIN }}' > .cookies/cookies-linkedin.json
           echo '${{ secrets.COOKIES_FACEBOOK }}' > .cookies/cookies-facebook.json
           echo '${{ secrets.COOKIES_THREADS }}' > .cookies/cookies-threads.json
           echo '${{ secrets.COOKIES_TOPDEV }}' > .cookies/cookies-topdev.json
@@ -108,7 +106,9 @@ jobs:
         if: always()
         with:
           name: logs-${{ matrix.name }}-${{ github.run_number }}
-          path: logs/job-search-*.json
+          path: |
+            logs/job-search-*.json
+            logs/openclaw-run-*.json
           retention-days: 3
 
   merge-jobs:

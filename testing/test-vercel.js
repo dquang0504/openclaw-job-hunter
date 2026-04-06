@@ -47,7 +47,8 @@ async function runTest() {
     const page = await context.newPage();
 
     try {
-        await scrapeVercel(page, reporter);
+        const result = await scrapeVercel(page, reporter);
+        console.log(JSON.stringify(result, null, 2));
     } catch (e) {
         console.error('Test Failed:', e);
     } finally {

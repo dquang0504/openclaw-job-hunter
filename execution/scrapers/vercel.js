@@ -10,6 +10,8 @@ const fs = require('fs');
 async function scrapeVercel(page, reporter) {
     console.log('📈 Checking Vercel Analytics...');
     const screenshotDebugger = new ScreenshotDebugger(reporter);
+    const warnings = [];
+    let status = 'success';
 
     try {
         const targetUrl = 'https://vercel.com/dquang0504s-projects/my-portfolio/analytics?period=24h';
@@ -42,7 +44,12 @@ async function scrapeVercel(page, reporter) {
             // Check if page is still open
             if (page.isClosed()) {
                 console.log('  ❌ Page was closed. Skipping Vercel scraper.');
-                return;
+                return {
+                    jobs: [],
+                    status: 'failed',
+                    warnings: ['Vercel page was closed before scraping'],
+                    metrics: {}
+                };
             }
 
             const isLoginPage = page.url().includes('login');
@@ -54,7 +61,14 @@ async function scrapeVercel(page, reporter) {
                 // isVisible() can throw if page is closed or navigated
                 if (e.message.includes('closed')) {
                     console.log('  ❌ Page/browser was closed during login check. Skipping.');
-                    return;
+                    await screenshotDebugger.captureError(page, 'vercel', e);
+                    return {
+                        jobs: [],
+                        status: 'failed',
+                        warnings: ['Vercel page/browser closed during login check'],
+                        error: e.message,
+                        metrics: {}
+                    };
                 }
                 // Otherwise, assume no email input
                 hasEmailInput = false;
@@ -62,11 +76,25 @@ async function scrapeVercel(page, reporter) {
 
             if (isLoginPage || hasEmailInput) {
                 console.log('  ❌ Not logged in to Vercel. Skipping.');
-                return;
+                await screenshotDebugger.captureAuthIssue(page, 'vercel', 'Vercel redirected to login or showed email input');
+                await reporter.sendStatus('⚠️ Vercel scraper skipped because login is required or cookies expired.');
+                return {
+                    jobs: [],
+                    status: 'blocked',
+                    warnings: ['Vercel login required or cookies expired'],
+                    metrics: {}
+                };
             }
         } catch (e) {
             console.log(`  ❌ Error checking login state: ${e.message}. Skipping.`);
-            return;
+            await screenshotDebugger.captureError(page, 'vercel', e);
+            return {
+                jobs: [],
+                status: 'failed',
+                warnings: [`Vercel login check failed: ${e.message}`],
+                error: e.message,
+                metrics: {}
+            };
         }
 
         console.log('  ✅ Access Vercel Dashboard/Analytics');
@@ -144,6 +172,7 @@ async function scrapeVercel(page, reporter) {
                     // Check if critical data is missing (User defined error condition)
                     if (visitors === 'N/A') {
                         console.warn(`  ⚠️ Attempt ${attempt}: Visitors data is N/A (Load error?)`);
+                        warnings.push('Visitors data was N/A during a Vercel scrape attempt');
                         if (attempt === maxRetries) {
                             throw new Error('Visitors data remains N/A after retries');
                         }
@@ -206,10 +235,12 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
 
                 } catch (e) {
                     console.log(`  ⚠️ Attempt ${attempt} failed: ${e.message}`);
+                    warnings.push(`Attempt ${attempt} failed: ${e.message}`);
                     if (attempt === maxRetries) {
                         console.error('  ❌ All retries failed for Vercel Scraper.');
                         await screenshotDebugger.capture(page, 'vercel_retry_failed');
                         await reporter.sendError(`⚠️ Vercel Scraper Failed: ${e.message}`);
+                        status = 'failed';
                     }
                 }
             }
@@ -222,7 +253,21 @@ ${countries.split(', ').map(i => `• ${i}`).join('\n')}
         } else {
             await screenshotDebugger.capture(page, 'vercel_error');
         }
+        return {
+            jobs: [],
+            status: 'failed',
+            warnings: [`Vercel scrape error: ${e.message}`],
+            error: e.message,
+            metrics: {}
+        };
     }
+
+    return {
+        jobs: [],
+        status: status === 'failed' ? 'failed' : (warnings.length > 0 ? 'partial' : 'success'),
+        warnings,
+        metrics: {}
+    };
 }
 
 module.exports = { scrapeVercel };

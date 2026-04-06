@@ -105,7 +105,7 @@ async function waitForFacebookDetailReady(detailPage) {
  * @param {import('playwright').Page} page
  * @param {import('../lib/telegram')} reporter
  */
-async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
+async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}) {
     console.log('📘 Searching Facebook Groups (Authenticated)...');
 
     // Ensure stealth settings are active
@@ -116,6 +116,11 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     const staleUrls = new Set();
     const context = page.context();
     const searchKeyword = 'golang';
+    const maxPostsPerGroup = options.maxPostsPerGroup || 15;
+    const maxNewJobsPerGroup = options.maxNewJobsPerGroup || 5;
+    let authIssueDetected = false;
+    let scannedPosts = 0;
+    const warnings = [];
 
     // --- WARM UP PHASE ---
     try {
@@ -141,6 +146,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
     for (const groupUrl of CONFIG.facebookGroups) {
+        if (authIssueDetected) break;
         try {
             const cleanGroupUrl = groupUrl.replace(/\/$/, '')
                 .replace('mbasic.facebook.com', 'www.facebook.com')
@@ -162,7 +168,11 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
             // Check for Blocked/Login
             if (page.url().includes('checkpoint') || await page.locator('input[name="email"]').count() > 0) {
                 console.log('  ⛔ Checkpoint/Login detected. Skipping.');
-                continue;
+                await screenshotDebugger.captureAuthIssue(page, 'facebook', `Checkpoint/Login detected while opening ${cleanGroupUrl}`);
+                await reporter.sendStatus('⚠️ Facebook scraper skipped because the session looks expired or needs login.');
+                warnings.push(`Auth issue detected while opening group ${cleanGroupUrl}`);
+                authIssueDetected = true;
+                break;
             }
 
             // Scroll to load posts
@@ -176,12 +186,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
             console.log(`    📄 Found ${postsCount} potential posts in feed.`);
 
             // Stop when either:
-            // 1. we found 5 new valid jobs in this group, or
-            // 2. we scanned the hard limit of 15 posts in this group.
-            const maxPostsToCheck = Math.min(postsCount, 15);
+            // 1. we found enough new valid jobs in this group, or
+            // 2. we scanned the hard limit configured for this group.
+            const maxPostsToCheck = Math.min(postsCount, maxPostsPerGroup);
 
             for (let i = 0; i < maxPostsToCheck; i++) {
-                if (validPostsInGroup >= 5) break; // Found enough new valid jobs for this group
+                if (validPostsInGroup >= maxNewJobsPerGroup) break; // Found enough new valid jobs for this group
+                scannedPosts++;
 
                 // Scroll to item
                 const post = page.locator(postSelector).nth(i);
@@ -389,6 +400,14 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     await detailPage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
                     await detailPage.waitForTimeout(1500);
 
+                    if (detailPage.url().includes('checkpoint') || await detailPage.locator('input[name="email"]').count() > 0) {
+                        authIssueDetected = true;
+                        warnings.push(`Auth issue detected while opening post detail ${postUrl}`);
+                        await screenshotDebugger.captureAuthIssue(detailPage, 'facebook', `Checkpoint/Login detected while opening post detail ${postUrl}`);
+                        await reporter.sendStatus('⚠️ Facebook scraper skipped because the session expired while opening a post detail.');
+                        break;
+                    }
+
                     // Wait for main content container specifically
                     try {
                         await detailPage.waitForSelector('div[data-ad-rendering-role="story_message"]', {
@@ -556,6 +575,8 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     if (detailPage) await detailPage.close();
                     await randomDelay(500, 1000); // Optimized wait
                 }
+
+                if (authIssueDetected) break;
             }
         } catch (error) {
             console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
@@ -566,7 +587,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
     return {
         jobs: uniqueJobs,
-        staleUrls: Array.from(staleUrls)
+        staleUrls: Array.from(staleUrls),
+        status: authIssueDetected ? 'blocked' : 'success',
+        warnings,
+        metrics: {
+            scannedCount: scannedPosts,
+            groupCount: CONFIG.facebookGroups.length
+        }
     };
 }
 

@@ -6,7 +6,6 @@
   "scripts": {
     "search": "node execution/job-search.js",
     "search:dry": "node execution/job-search.js --dry-run",
-    "search:topcv": "node execution/job-search.js --platform=topcv",
     "search:twitter": "node execution/job-search.js --platform=twitter"
   },
   "keywords": [

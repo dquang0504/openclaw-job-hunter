@@ -27,6 +27,7 @@ async function scrapeLinkedIn(page, reporter) {
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     const jobs = [];
     const context = page.context();
+    const warnings = [];
 
     // --- WARM UP PHASE & LOGIN CHECK ---
     try {
@@ -40,6 +41,7 @@ async function scrapeLinkedIn(page, reporter) {
         } catch (e) {
             console.error('    ❌ Login Verification Failed! Cookies might be invalid.');
             await screenshotDebugger.captureAndSend(page, 'linkedin_login_failed');
+            warnings.push('LinkedIn login verification failed');
             throw new Error('LinkedIn Login Failed - navigation bar not found');
         }
 
@@ -55,6 +57,7 @@ async function scrapeLinkedIn(page, reporter) {
     } catch (e) {
         if (e.message.includes('Login Failed')) throw e; // Re-throw fatal login error
         console.log('⚠️ Warm-up failed (non-critical):', e.message);
+        warnings.push(`LinkedIn warm-up failed: ${e.message}`);
     }
     // --- END WARM UP ---
 
@@ -85,6 +88,7 @@ async function scrapeLinkedIn(page, reporter) {
             } catch (e) {
                 console.log('    ⚠️ Main list selector not found, trying fallback...');
                 await screenshotDebugger.captureAndSend(page, 'linkedin_job_list_missing');
+                warnings.push(`LinkedIn job list missing for keyword "${keyword}"`);
                 if (await page.locator('h1.artdeco-empty-state__headline').count() > 0) {
                     console.log('    ⚠️ No jobs found for this keyword.');
                 }
@@ -421,10 +425,26 @@ async function scrapeLinkedIn(page, reporter) {
     } catch (error) {
         console.error(`  ❌ LinkedIn Scrape Error: ${error.message}`);
         await screenshotDebugger.captureAndSend(page, 'linkedin_fatal_error');
+        return {
+            jobs: [],
+            status: error.message.includes('Login Failed') ? 'blocked' : 'failed',
+            warnings: [`LinkedIn scrape error: ${error.message}`, ...warnings],
+            error: error.message,
+            metrics: {
+                scannedCount: jobs.length
+            }
+        };
     }
 
     const uniqueJobs = [...new Map(jobs.map(j => [j.url, j])).values()];
-    return uniqueJobs;
+    return {
+        jobs: uniqueJobs,
+        status: warnings.length > 0 ? 'partial' : 'success',
+        warnings,
+        metrics: {
+            scannedCount: uniqueJobs.length
+        }
+    };
 }
 
 module.exports = { scrapeLinkedIn };

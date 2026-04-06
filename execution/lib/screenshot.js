@@ -58,6 +58,10 @@ class ScreenshotDebugger {
         }
     }
 
+    async capture(page, context, message = '') {
+        return this.captureAndSend(page, context, message);
+    }
+
     /**
      * Capture screenshot on Cloudflare detection
      */
@@ -77,13 +81,24 @@ class ScreenshotDebugger {
      * Capture screenshot on error
      */
     async captureError(page, platform, error) {
-        const url = page.url().catch(() => 'Unknown');
+        const url = page && !page.isClosed() ? page.url() : 'Unknown';
 
         const message = `❌ Error in ${platform} Scraper\n\n` +
             `Error: ${error.message}\n` +
-            `URL: ${await url}`;
+            `URL: ${url}`;
 
         return await this.captureAndSend(page, `${platform}-error`, message);
+    }
+
+    async captureAuthIssue(page, platform, reason = 'Login required or session expired') {
+        const url = page && !page.isClosed() ? page.url() : 'Unknown';
+
+        const message = `🔐 Auth issue in ${platform} scraper\n\n` +
+            `Reason: ${reason}\n` +
+            `URL: ${url}\n\n` +
+            `Action: Skipping scraper. Refresh cookies/session if needed.`;
+
+        return await this.captureAndSend(page, `${platform}-auth`, message);
     }
 
     /**

@@ -6,6 +6,7 @@
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle } = require('../lib/stealth');
 const { calculateMatchScore } = require('../lib/filters');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -172,6 +173,7 @@ async function scrapeKeyword(page, keyword, reporter) {
     const jobs = [];
     const seenPostIds = new Set();
     const TARGET_POSTS_PER_KEYWORD = 100;
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     // Timespan: 2 months (60 days)
     // Dynamic Filter
@@ -205,7 +207,16 @@ async function scrapeKeyword(page, keyword, reporter) {
 
         if (page.url().includes('/login')) {
             console.log('  🔒 Login wall detected.');
-            return [];
+            await screenshotDebugger.captureAuthIssue(page, 'threads', `Threads redirected to login during keyword search "${keyword}"`);
+            await reporter.sendStatus('⚠️ Threads requires login - skipping (ensure cookies are valid)');
+            return {
+                jobs: [],
+                status: 'blocked',
+                warnings: [`Login wall detected for keyword "${keyword}"`],
+                metrics: {
+                    scannedCount: 0
+                }
+            };
         }
 
         // --- Scroll Loop ---
@@ -368,11 +379,28 @@ async function scrapeKeyword(page, keyword, reporter) {
 
     } catch (error) {
         console.error(`  ❌ Error searching "${keyword}": ${error.message}`);
+        await screenshotDebugger.captureError(page, 'threads', error);
+        return {
+            jobs: [],
+            status: 'failed',
+            warnings: [`Keyword "${keyword}" failed: ${error.message}`],
+            error: error.message,
+            metrics: {
+                scannedCount: seenPostIds.size
+            }
+        };
     } finally {
         page.removeListener('response', responseListener);
     }
 
-    return jobs;
+    return {
+        jobs,
+        status: 'success',
+        warnings: [],
+        metrics: {
+            scannedCount: seenPostIds.size
+        }
+    };
 }
 
 /**
@@ -404,6 +432,7 @@ async function scrapeThreadsParallel(context, reporter) {
 
 async function scrapeThreads(page, reporter, customKeywords = null) {
     console.log('🧵 Searching Threads (Serial)...');
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
 
     // --- LOGIN CHECK / SESSION RESTORE ---
     try {
@@ -438,6 +467,7 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
 
     } catch (e) {
         console.log(`  ⚠️ Login check failed: ${e.message}`);
+        await screenshotDebugger.captureError(page, 'threads', e);
     }
     // --- END LOGIN CHECK ---
 
@@ -445,17 +475,43 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
     const keywords = customKeywords || defaultKeywords;
 
     const allJobs = [];
+    const warnings = [];
+    let blocked = false;
+    let failed = false;
+    let scannedCount = 0;
     for (const keyword of keywords) {
         try {
-            const jobs = await scrapeKeyword(page, keyword, reporter);
+            const result = await scrapeKeyword(page, keyword, reporter);
+            const jobs = Array.isArray(result) ? result : (result.jobs || []);
             allJobs.push(...jobs);
+            scannedCount += result?.metrics?.scannedCount || jobs.length;
+
+            if (result?.warnings?.length) {
+                warnings.push(...result.warnings);
+            }
+            if (result?.status === 'blocked') {
+                blocked = true;
+                break;
+            }
+            if (result?.status === 'failed') {
+                failed = true;
+            }
         } catch (error) {
             console.error(`  ❌ Error processing "${keyword}": ${error.message}`);
+            warnings.push(`Keyword "${keyword}" crashed: ${error.message}`);
+            failed = true;
         }
     }
 
     const uniqueJobs = [...new Map(allJobs.map(j => [j.url, j])).values()];
-    return uniqueJobs;
+    return {
+        jobs: uniqueJobs,
+        status: blocked ? 'blocked' : (failed ? 'partial' : 'success'),
+        warnings,
+        metrics: {
+            scannedCount
+        }
+    };
 }
 
 module.exports = { scrapeThreads, scrapeThreadsParallel };

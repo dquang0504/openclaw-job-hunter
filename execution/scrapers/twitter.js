@@ -5,6 +5,7 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll } = require('../lib/stealth');
+const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -20,6 +21,8 @@ async function scrapeTwitter(page, reporter) {
 
     const jobs = [];
     const seenUrls = new Set();
+    const screenshotDebugger = new ScreenshotDebugger(reporter);
+    const warnings = [];
 
     const baseKeywords = CONFIG.socialSearchKeywords?.length > 0
         ? CONFIG.socialSearchKeywords
@@ -39,8 +42,17 @@ async function scrapeTwitter(page, reporter) {
             // Check for login wall
             if (await page.locator('[data-testid="LoginForm"]').count() > 0) {
                 console.log('  ⚠️ Twitter requires login, skipping...');
+                await screenshotDebugger.captureAuthIssue(page, 'twitter', 'X requires login or cookies have expired');
                 await reporter.sendStatus('⚠️ X requires login - skipping (ensure cookies are valid)');
-                return jobs;
+                warnings.push('Login wall detected on X');
+                return {
+                    jobs,
+                    status: 'blocked',
+                    warnings,
+                    metrics: {
+                        scannedCount: seenUrls.size
+                    }
+                };
             }
 
             await humanScroll(page);
@@ -93,10 +105,27 @@ async function scrapeTwitter(page, reporter) {
 
     } catch (error) {
         console.error('Error searching Twitter:', error.message);
+        await screenshotDebugger.captureError(page, 'twitter', error);
         await reporter.sendError(`Twitter search failed: ${error.message}`);
+        return {
+            jobs,
+            status: 'failed',
+            warnings: [`Twitter search failed: ${error.message}`],
+            error: error.message,
+            metrics: {
+                scannedCount: seenUrls.size
+            }
+        };
     }
 
-    return jobs;
+    return {
+        jobs,
+        status: warnings.length > 0 ? 'partial' : 'success',
+        warnings,
+        metrics: {
+            scannedCount: seenUrls.size
+        }
+    };
 }
 
 module.exports = { scrapeTwitter };

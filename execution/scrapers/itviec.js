@@ -16,6 +16,7 @@ async function scrapeITViec(page, reporter) {
 
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     let isBlocked = false;
+    const warnings = [];
 
     const jobs = [];
     // User requested keyword 'golang' in the URL examples, but we should respect CONFIG if possible.
@@ -96,6 +97,7 @@ async function scrapeITViec(page, reporter) {
                         if (finalTitle.includes('Attention Required') || finalTitle.includes('bảo mật') || finalTitle.includes('Cloudflare')) {
                             console.warn('    🚫 Cloudflare challenge persist after attempt. Skipping...');
                             await screenshotDebugger.captureAndSend(page, 'itviec-cloudflare-blocked', '🚨 ITViec: Blocked by Cloudflare (Challenge Failed)');
+                            warnings.push('ITViec blocked by Cloudflare challenge');
                             isBlocked = true;
                             break;
                         } else {
@@ -181,6 +183,7 @@ async function scrapeITViec(page, reporter) {
                             } catch (e) {
                                 console.error(`    ❌ Filter verification FAILED: ${e.message}`);
                                 await screenshotDebugger.captureAndSend(page, 'itviec-filter-failed', `🚨 ITViec: Filter failed for ${keyword} in ${location.name} (Badge != 1)`);
+                                warnings.push(`ITViec filter verification failed for ${keyword} in ${location.name}`);
                                 // Skip processing this keyword/location to avoid scraping unfiltered jobs
                                 continue;
                             }
@@ -333,11 +336,19 @@ async function scrapeITViec(page, reporter) {
 
             } catch (error) {
                 console.error(`  ⚠️ ITViec Error for ${keyword} in ${location.name}: ${error.message}`);
+                warnings.push(`ITViec error for ${keyword} in ${location.name}: ${error.message}`);
             }
         }
     }
 
-    return jobs;
+    return {
+        jobs,
+        status: isBlocked ? 'blocked' : (warnings.length > 0 ? 'partial' : 'success'),
+        warnings,
+        metrics: {
+            scannedCount: jobs.length
+        }
+    };
 }
 
 module.exports = { scrapeITViec };

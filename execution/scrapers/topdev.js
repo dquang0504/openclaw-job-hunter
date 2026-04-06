@@ -19,6 +19,7 @@ async function scrapeTopDev(page, reporter) {
     const jobs = [];
     const screenshotDebugger = new ScreenshotDebugger(reporter);
     let isBlocked = false;
+    const warnings = [];
     const keywords = CONFIG.keywords || ['golang'];
 
     // TopDev Levels: 1616 (Intern), 1617 (Fresher)
@@ -64,6 +65,7 @@ async function scrapeTopDev(page, reporter) {
                 if (pageTitle.includes('Just a moment') || pageTitle.includes('Checking your browser')) {
                     console.warn('    🛡️ Cloudflare challenge detected! 🚫 Skipping entire TopDev scraper...');
                     await screenshotDebugger.captureAndSend(page, 'topdev-cloudflare-blocked', '🚨 TopDev: Blocked by Cloudflare - Scraper terminally skipped');
+                    warnings.push('TopDev blocked by Cloudflare challenge');
                     isBlocked = true;
                     break;
                 }
@@ -204,11 +206,19 @@ async function scrapeTopDev(page, reporter) {
 
             } catch (error) {
                 console.error(`  ⚠️ TopDev Error for ${keyword}: ${error.message}`);
+                warnings.push(`TopDev error for ${keyword}: ${error.message}`);
             }
         }
     }
 
-    return jobs;
+    return {
+        jobs,
+        status: isBlocked ? 'blocked' : (warnings.length > 0 ? 'partial' : 'success'),
+        warnings,
+        metrics: {
+            scannedCount: jobs.length
+        }
+    };
 }
 
 

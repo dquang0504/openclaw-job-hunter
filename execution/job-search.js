@@ -3,7 +3,7 @@
  * Main orchestration file
  * 
  * Flow:
- * 1. Scrape all platforms (TopCV, Twitter, LinkedIn, Facebook, Threads, Indeed)
+ * 1. Scrape active platforms (Twitter, Facebook, Threads, Indeed, TopDev, ITViec, Vercel, Cloudflare)
  * 2. Collect ALL raw jobs
  * 3. ONE batch AI validation call for all jobs (G4F)
  * 4. Filter, deduplicate, and send to Telegram
@@ -20,37 +20,20 @@ const path = require('path');
 // Import modules
 const CONFIG = require('./config');
 const TelegramReporter = require('./lib/telegram');
-const { loadSeenJobs, saveSeenJobs } = require('./lib/deduplication');
-const { randomDelay, getRandomUserAgent, applyStealthSettings } = require('./lib/stealth');
-const { batchValidateJobsWithAI } = require('./lib/ai-filter');
-const { calculateMatchScore } = require('./lib/filters');
 const { formatDateTime } = require('./utils/date');
-
-// Import scrapers
-const { scrapeTwitter } = require('./scrapers/twitter');
-const { scrapeLinkedIn, createLinkedInContext } = require('./scrapers/linkedin');
-const { scrapeFacebook } = require('./scrapers/facebook');
-const { scrapeThreads } = require('./scrapers/threads');
-const { scrapeIndeed } = require('./scrapers/indeed');
-const { scrapeVercel } = require('./scrapers/vercel');
-const { scrapeCloudflare } = require('./scrapers/cloudflare');
-const { scrapeTopDev } = require('./scrapers/topdev');
-const { scrapeITViec } = require('./scrapers/itviec');
+const { createRunPolicy } = require('./openclaw/policies');
+const { createRunState } = require('./openclaw/state');
+const { runOpenClaw } = require('./openclaw/runner');
+const { createRunTelemetry } = require('./openclaw/telemetry');
 
 // =============================================================================
 // MAIN EXECUTION
 // =============================================================================
 
 async function main() {
-    const args = process.argv.slice(2);
-    const isDryRun = args.includes('--dry-run');
-    const platformArg = args.find(a => a.startsWith('--platform='));
-    const platformParam = platformArg ? platformArg.split('=')[1] : 'all';
-    const platforms = platformParam.split(',');
-    const shouldRun = (p) => platforms.includes('all') || platforms.includes(p);
-    const skipAI = args.includes('--no-ai');
+    const runPolicy = createRunPolicy(process.argv.slice(2));
 
-    console.log(`🚀 Starting job search (dry-run: ${isDryRun}, platform: ${platformParam}, AI: ${!skipAI})`);
+    console.log(`🚀 Starting job search (dry-run: ${runPolicy.isDryRun}, platform: ${runPolicy.platformParam}, AI: ${!runPolicy.skipAI})`);
     console.log(`🕒 Execution started at: ${formatDateTime()}`);
 
     // Ensure directories exist
@@ -62,10 +45,8 @@ async function main() {
     }
 
     const reporter = new TelegramReporter();
-
-    // Use headless: false for topdev, itviec (they need UI for filters)
-    // xvfb-run in GitHub Actions provides virtual display
-    const needsHeadful = shouldRun('topdev') || shouldRun('itviec');
+    const runState = createRunState();
+    const telemetry = createRunTelemetry(runPolicy);
 
     const browser = await chromium.launch({
         headless: false,
@@ -125,7 +106,6 @@ async function main() {
     // Load cookies
     const cookieFiles = {
         twitter: path.join(CONFIG.paths.cookies, 'cookies-twitter.json'),
-        linkedin: path.join(CONFIG.paths.cookies, 'cookies-linkedin.json'),
         facebook: path.join(CONFIG.paths.cookies, 'cookies-facebook.json'),
         threads: path.join(CONFIG.paths.cookies, 'cookies-threads.json'),
         vercel: path.join(CONFIG.paths.cookies, 'cookies-vercel.json'),
@@ -163,206 +143,30 @@ async function main() {
     }
 
     const page = await context.newPage();
-    const seenJobs = loadSeenJobs(); // Pre-load seen jobs for optimization
-    const seenEntriesToPersist = new Map();
-    let allRawJobs = [];  // Raw jobs before AI validation
-
-    const queueSeenEntries = (items, status) => {
-        const now = Date.now();
-        for (const item of items || []) {
-            const entry = typeof item === 'string'
-                ? { url: item, timestamp: now, status }
-                : { ...item, timestamp: item.timestamp || now, status: item.status || status };
-
-            if (!entry.url) continue;
-
-            const existing = seenEntriesToPersist.get(entry.url);
-            if (!existing || entry.timestamp >= existing.timestamp) {
-                seenEntriesToPersist.set(entry.url, entry);
-            }
-        }
-    };
+    let allRawJobs = [];
 
     try {
-        // =====================================================================
-        // STEP 1: SCRAPE ALL PLATFORMS (collect raw jobs)
-        // =====================================================================
-
-        // Scrape Twitter
-        if (shouldRun('twitter')) {
-            const twitterJobs = await scrapeTwitter(page, reporter);
-            allRawJobs = allRawJobs.concat(twitterJobs.map((j, i) => ({ ...j, id: `twitter-${i}` })));
-        }
-
-        // Scrape LinkedIn
-        // Scrape LinkedIn
-        // if (shouldRun('linkedin')) {
-        //     const linkedinJobs = await scrapeLinkedIn(page, reporter);
-        //     allRawJobs = allRawJobs.concat(linkedinJobs.map((j, i) => ({ ...j, id: `linkedin-${i}` })));
-        // }
-
-        // Scrape Facebook
-        if (shouldRun('facebook')) {
-            const { jobs: fbJobs, staleUrls: fbStaleUrls } = await scrapeFacebook(page, reporter, seenJobs);
-            allRawJobs = allRawJobs.concat(fbJobs.map((j, i) => ({ ...j, id: `facebook-${i}` })));
-            queueSeenEntries(fbStaleUrls, 'stale');
-        }
-
-        // Scrape Threads
-        if (shouldRun('threads')) {
-            const threadsJobs = await scrapeThreads(page, reporter);
-            allRawJobs = allRawJobs.concat(threadsJobs.map((j, i) => ({ ...j, id: `threads-${i}` })));
-        }
-
-        // Scrape Indeed
-        if (shouldRun('indeed')) {
-            const indeedJobs = await scrapeIndeed(page, reporter);
-            allRawJobs = allRawJobs.concat(indeedJobs.map((j, i) => ({ ...j, id: `indeed-${i}` })));
-        }
-
-        // Scrape TopDev
-        if (shouldRun('topdev')) {
-            const topdevJobs = await scrapeTopDev(page, reporter);
-            allRawJobs = allRawJobs.concat(topdevJobs.map((j, i) => ({ ...j, id: `topdev-${i}` })));
-        }
-
-        // Scrape ITViec
-        if (shouldRun('itviec')) {
-            const itviecJobs = await scrapeITViec(page, reporter);
-            allRawJobs = allRawJobs.concat(itviecJobs.map((j, i) => ({ ...j, id: `itviec-${i}` })));
-        }
-
-        // Monitor Vercel
-        if (shouldRun('vercel')) {
-            try {
-                console.log('⏳ Starting Vercel scrape with 1m timeout...');
-                await Promise.race([
-                    scrapeVercel(page, reporter),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Vercel scrape timed out (1m)')), 60000))
-                ]);
-            } catch (e) {
-                console.error(`  ⚠️ Vercel scrape skipped due to timeout/error: ${e.message}`);
-            }
-        }
-
-        // Monitor Cloudflare
-        if (shouldRun('cloudflare')) {
-            try {
-                console.log('⏳ Starting Cloudflare check with 30s timeout...');
-                await Promise.race([
-                    scrapeCloudflare(reporter),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Cloudflare timed out (30s)')), 30000))
-                ]);
-            } catch (e) {
-                console.error(`  ⚠️ Cloudflare check skipped: ${e.message}`);
-            }
-        }
-
-        console.log(`\n📦 Total raw jobs collected: ${allRawJobs.length}`);
-
-        // =====================================================================
-        // STEP 1.5: PRE-FILTERING (Strict Date & Experience)
-        // =====================================================================
-        const { shouldIncludeJob } = require('./lib/filters');
-
-        const initialCount = allRawJobs.length;
-        allRawJobs = allRawJobs.filter(job => {
-            const shouldInclude = shouldIncludeJob(job);
-            if (!shouldInclude) {
-                // console.log(`  Filtered out: ${job.title} (${job.postedDate})`);
-            }
-            return shouldInclude;
+        const runResult = await runOpenClaw({
+            page,
+            reporter,
+            runPolicy,
+            runState,
+            telemetry
         });
-        console.log(`\n🧹 Pre-filtering: ${initialCount} -> ${allRawJobs.length} jobs (removed old/irrelevant)`);
+        allRawJobs = runResult.allRawJobs;
 
-        // =====================================================================
-        // STEP 2: DEDUPLICATION (Filter BEFORE AI to save tokens)
-        // =====================================================================
-
-        // const seenJobs = loadSeenJobs(); // Moved to start of execution
-        // Filter out jobs already seen
-        let unseenJobs = allRawJobs.filter(job => !seenJobs.has(job.url));
-
-        console.log(`\n🔍 Deduplication: ${allRawJobs.length} total -> ${unseenJobs.length} unseen jobs`);
-
-        if (unseenJobs.length === 0) {
-            console.log('ℹ️ No new unseen jobs to process.');
-            // Save logs even if no new jobs
-            const logFile = path.join(CONFIG.paths.logs, `job-search-${new Date().toISOString().split('T')[0]}.json`);
-            if (!fs.existsSync(CONFIG.paths.logs)) fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
-            fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
-            return;
-        }
-
-        // =====================================================================
-        // STEP 3: UNIFIED AI VALIDATION (Only for UNSEEN jobs)
-        // =====================================================================
-
-        let validatedNewJobs = unseenJobs;
-
-        if (!skipAI) {
-            const aiResults = await batchValidateJobsWithAI(unseenJobs);
-
-            // Apply AI scores to jobs
-            validatedNewJobs = unseenJobs.map(job => {
-                const result = aiResults.get(job.id);
-                if (result) {
-                    return {
-                        ...job,
-                        matchScore: result.score,
-                        aiReason: result.reason,
-                        aiValidated: result.isValid,
-                        // Override fields if AI provided them and they are better than default
-                        location: (result.location && result.location !== 'Unknown') ? result.location : job.location,
-                        postedDate: (result.postedDate && result.postedDate !== 'Unknown') ? result.postedDate : job.postedDate,
-                        techStack: result.techStack || job.techStack
-                    };
-                }
-                return { ...job, matchScore: calculateMatchScore(job), aiValidated: true };
-            });
-
-            // Filter only valid jobs
-            validatedNewJobs = validatedNewJobs.filter(job => job.aiValidated && job.matchScore >= 5);
-        }
-
-        // Sort by match score
-        validatedNewJobs.sort((a, b) => b.matchScore - a.matchScore);
-
-        // =====================================================================
-        // STEP 4: SEND TO TELEGRAM
-        // =====================================================================
-
-        console.log(`\n📊 Found ${validatedNewJobs.length} valid NEW jobs to send`);
-
-        if (validatedNewJobs.length === 0) {
-            console.log('ℹ️ No valid new jobs found after AI validation');
-        } else {
-            // Send up to 8 jobs (increased to 8 for buffer strategy)
-            const jobsToSend = validatedNewJobs.slice(0, 8);
-            const sentUrls = [];
-
-            for (const job of jobsToSend) {
-                console.log(`  [${job.matchScore}/10] ${job.title?.slice(0, 50)} @ ${job.company}`);
-
-                if (!isDryRun) {
-                    await reporter.sendJobReport(job);
-                    await randomDelay(500, 1000);
-                }
-                sentUrls.push(job.url);
+        if (runResult.hadNoUnseenJobs) {
+            const datedLogFile = path.join(CONFIG.paths.logs, `job-search-${new Date().toISOString().split('T')[0]}.json`);
+            if (!fs.existsSync(CONFIG.paths.logs)) {
+                fs.mkdirSync(CONFIG.paths.logs, { recursive: true });
             }
-
-            queueSeenEntries(sentUrls, 'sent');
-
-            await reporter.sendStatus(`✅ Tìm được ${validatedNewJobs.length} jobs mới valid, đã gửi ${jobsToSend.length} jobs.`);
+            fs.writeFileSync(datedLogFile, JSON.stringify(allRawJobs, null, 2));
         }
-
     } catch (error) {
         console.error('Fatal error:', error);
         await reporter.sendError(error.message);
     } finally {
-        if (!isDryRun && seenEntriesToPersist.size > 0) {
-            saveSeenJobs(Array.from(seenEntriesToPersist.values()));
-        }
+        runState.persistSeenEntries(runPolicy.isDryRun);
 
         // Save results BEFORE closing browser to avoid "Page/browser was closed" error
         const safeTime = new Date().toISOString().replace(/:/g, '-').split('.')[0];
@@ -373,6 +177,10 @@ async function main() {
         }
         fs.writeFileSync(logFile, JSON.stringify(allRawJobs, null, 2));
         console.log(`\n📁 Results saved to ${logFile}`);
+
+        const telemetryLogFile = path.join(CONFIG.paths.logs, `openclaw-run-${safeTime}.json`);
+        fs.writeFileSync(telemetryLogFile, JSON.stringify(telemetry.buildRunSummary(), null, 2));
+        console.log(`📁 OpenClaw telemetry saved to ${telemetryLogFile}`);
 
         await browser.close();
     }
