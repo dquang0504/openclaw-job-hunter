@@ -34,6 +34,29 @@ function shouldRejectForLevel(text) {
     return hasDisqualifyingLevelSignal(normalized) && !hasTargetLevelSignal(normalized);
 }
 
+function evaluateJob(job) {
+    const text = normalizeFilterText(`${job.title} ${job.description || ''}`);
+    const locationText = normalizeFilterText(`${job.location || ''} ${job.title || ''} ${job.description || ''}`);
+    const locationInfo = analyzeLocation(locationText);
+    const freshnessInfo = getJobFreshnessInfo(job.postedDate, {
+        freshnessDays: CONFIG.jobFreshnessDays,
+        allowUnknownRecent: true
+    });
+    const reasons = [];
+
+    if (!CONFIG.keywordRegex.test(text)) reasons.push('missing_keyword');
+    if (shouldRejectForLevel(text)) reasons.push('level_reject');
+    if (!freshnessInfo.isFresh) reasons.push('stale');
+    if (locationInfo.isHanoiOnly) reasons.push('hanoi_only');
+
+    return {
+        include: reasons.length === 0,
+        reasons,
+        locationInfo,
+        freshnessInfo
+    };
+}
+
 function analyzeLocation(text) {
     const normalized = normalizeFilterText(text);
     const isHanoi = HANOI_REGEX.test(normalized);
@@ -84,7 +107,6 @@ function calculateMatchScore(job) {
     // Matches: "3 years", "3 nam", "3+ years", "4 năm", "5 nam"
     // Also matches "Minimum 4 years", "Tối thiểu 4 năm"
     if (shouldRejectForLevel(text)) {
-        console.log(`    ⚠️ REJECTED: High YoE detected`);
         score = 0; // Immediate rejection
     }
 
@@ -95,17 +117,7 @@ function calculateMatchScore(job) {
  * Check if job should be included based on criteria
  */
 function shouldIncludeJob(job) {
-    const text = normalizeFilterText(`${job.title} ${job.description || ''}`);
-
-    // Must contain golang/go
-    if (!CONFIG.keywordRegex.test(text)) return false;
-
-    if (shouldRejectForLevel(text)) return false;
-
-    // Must be from valid years
-    if (!isRecentJob(job.postedDate)) return false;
-
-    return true;
+    return evaluateJob(job).include;
 }
 
 /**
@@ -123,6 +135,7 @@ function isRecentJob(dateStr) {
 module.exports = {
     analyzeLocation,
     calculateMatchScore,
+    evaluateJob,
     hasTargetLevelSignal,
     isRecentJob,
     shouldIncludeJob,

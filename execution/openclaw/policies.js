@@ -1,10 +1,12 @@
+const CONFIG = require('../config');
+
 function createRunPolicy(args = []) {
     const isDryRun = args.includes('--dry-run');
     const skipAI = args.includes('--no-ai');
     const platformArg = args.find(arg => arg.startsWith('--platform='));
     const platformParam = platformArg ? platformArg.split('=')[1] : 'all';
     const platforms = platformParam.split(',');
-    const taskOrder = ['twitter', 'facebook', 'threads', 'indeed', 'topdev', 'itviec', 'vercel', 'cloudflare'];
+    const taskOrder = [...CONFIG.platforms.active];
     const platformTimeouts = {
         twitterMs: 90_000,
         facebookMs: 8 * 60_000,
@@ -17,8 +19,10 @@ function createRunPolicy(args = []) {
     };
     const platformConfigs = {
         facebook: {
+            groups: CONFIG.facebookGroups,
             maxPostsPerGroup: 15,
-            maxNewJobsPerGroup: 5
+            maxNewJobsPerGroup: 5,
+            stopAfterTotalRawJobs: 12
         }
     };
 

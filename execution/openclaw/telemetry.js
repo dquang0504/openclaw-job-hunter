@@ -8,6 +8,8 @@ function createRunTelemetry(runPolicy) {
         validatedJobs: 0,
         sentJobs: 0
     };
+    const dropReasons = {};
+    const healthAlerts = [];
 
     return {
         startedAt,
@@ -18,6 +20,19 @@ function createRunTelemetry(runPolicy) {
         },
         setPipelineCounts(nextCounts = {}) {
             Object.assign(pipeline, nextCounts);
+        },
+        incrementDropReason(reason, count = 1) {
+            if (!reason) return;
+            dropReasons[reason] = (dropReasons[reason] || 0) + count;
+        },
+        mergeDropReasons(reasons = {}) {
+            for (const [reason, count] of Object.entries(reasons)) {
+                this.incrementDropReason(reason, count);
+            }
+        },
+        recordHealthAlert(alert) {
+            if (!alert) return;
+            healthAlerts.push(alert);
         },
         printTaskSummary() {
             if (taskResults.length === 0) {
@@ -30,13 +45,20 @@ function createRunTelemetry(runPolicy) {
                 const duration = `${taskResult.durationMs}ms`;
                 const rawCount = taskResult.metrics?.rawJobCount ?? 0;
                 const staleCount = taskResult.metrics?.staleCount ?? 0;
+                const scannedCount = taskResult.metrics?.scannedCount ?? 0;
                 const warningCount = taskResult.warnings?.length ?? 0;
-                const statusLine = `  • ${taskResult.platform}: ${taskResult.status} | raw=${rawCount} | stale=${staleCount} | warnings=${warningCount} | duration=${duration}`;
+                const statusLine = `  • ${taskResult.platform}: ${taskResult.status} | raw=${rawCount} | scanned=${scannedCount} | stale=${staleCount} | warnings=${warningCount} | duration=${duration}`;
                 console.log(statusLine);
 
                 if (taskResult.error) {
                     console.log(`    error: ${taskResult.error}`);
                 }
+            }
+
+            const dropReasonEntries = Object.entries(dropReasons);
+            if (dropReasonEntries.length > 0) {
+                const summary = dropReasonEntries.map(([reason, count]) => `${reason}=${count}`).join(', ');
+                console.log(`📉 Drop reasons: ${summary}`);
             }
         },
         buildRunSummary() {
@@ -58,6 +80,8 @@ function createRunTelemetry(runPolicy) {
                 },
                 taskStatusCounts,
                 pipeline: { ...pipeline },
+                dropReasons: { ...dropReasons },
+                healthAlerts: [...healthAlerts],
                 tasks: taskResults.map(taskResult => ({
                     platform: taskResult.platform,
                     status: taskResult.status,

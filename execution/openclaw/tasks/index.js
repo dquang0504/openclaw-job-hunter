@@ -1,5 +1,4 @@
 const { scrapeTwitter } = require('../../scrapers/twitter');
-const { scrapeFacebook } = require('../../scrapers/facebook');
 const { scrapeThreads } = require('../../scrapers/threads');
 const { scrapeIndeed } = require('../../scrapers/indeed');
 const { scrapeVercel } = require('../../scrapers/vercel');
@@ -7,6 +6,7 @@ const { scrapeCloudflare } = require('../../scrapers/cloudflare');
 const { scrapeTopDev } = require('../../scrapers/topdev');
 const { scrapeITViec } = require('../../scrapers/itviec');
 const ScreenshotDebugger = require('../../lib/screenshot');
+const { runFacebookTask } = require('./facebook-search');
 
 function appendTaggedJobs(jobs, platform) {
     return (jobs || []).map((job, index) => ({ ...job, id: `${platform}-${index}` }));
@@ -33,6 +33,7 @@ function createTaskResult({
         metrics: {
             rawJobCount: rawJobs.length,
             staleCount: staleUrls.length,
+            scannedCount: rawJobs.length,
             ...metrics
         }
     };
@@ -64,7 +65,9 @@ function normalizeScrapeResult(platform, rawResult) {
             staleUrls: [],
             warnings: [],
             error: null,
-            metrics: {}
+            metrics: {
+                scannedCount: rawResult.length
+            }
         };
     }
 
@@ -84,12 +87,7 @@ function getTaskDefinitions() {
             run: ({ page, reporter }) => scrapeTwitter(page, reporter)
         },
         facebook: {
-            run: ({ page, reporter, runState, runPolicy }) => scrapeFacebook(
-                page,
-                reporter,
-                runState.seenJobs,
-                runPolicy.getPlatformConfig('facebook')
-            )
+            run: ({ page, reporter, runState, runPolicy }) => runFacebookTask({ page, reporter, runState, runPolicy })
         },
         threads: {
             run: ({ page, reporter }) => scrapeThreads(page, reporter)

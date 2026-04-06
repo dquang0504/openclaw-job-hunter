@@ -214,8 +214,9 @@ Success criteria:
 Current status:
 - partial: seen/stale/sent cache ownership is now routed through `openclaw/state.js`
 - partial: per-platform timeout policy is now centralized in `openclaw/policies.js`
-- partial: Facebook scan depth and stop-after-N-new-jobs are now injected from OpenClaw policy config, but execution still happens inside the scraper loop
-- pending: retry/backoff and blocked-platform state are not yet modeled centrally
+- partial: Facebook group orchestration now runs via `openclaw/tasks/facebook-search.js`, while per-group extraction still lives in the scraper
+- partial: blocked/failed platform health is now persisted in `logs/platform-health.json`
+- pending: retry/backoff is not yet modeled centrally
 
 ### Phase 3. Standardize Task Contracts
 Objective:
@@ -247,7 +248,8 @@ Current status:
 - partial: every task now reports `platform`, `status`, `rawJobs`, `staleUrls`, `metrics`, `warnings`, `error`
 - partial: task failures now go through a shared screenshot/Telegram skip path in the OpenClaw layer
 - partial: several major scrapers now return `partial/blocked/failed` explicitly instead of silent empty results
-- pending: task metrics should include richer counters like deduped/newValid/drop-reasons instead of only raw/stale/scanned
+- partial: task metrics now include richer counters such as scanned/raw/stale and feed into run-level drop reasons
+- pending: task metrics should still grow to include more platform-native counters like per-batch retries
 
 ### Phase 4. Add OpenClaw Telemetry
 Objective:
@@ -268,9 +270,9 @@ Success criteria:
 - answer "why was this job missed?" from structured output instead of grep-heavy log reading
 
 Current status:
-- partial: run-level telemetry file exists and records task results, status counts, and pipeline counts
+- partial: run-level telemetry file exists and records task results, status counts, pipeline counts, and drop reasons
 - partial: auth/session failures now capture screenshots and notify Telegram before the task is skipped
-- pending: drop-reason counters are still not emitted in a structured way
+- partial: repeated blocked/failed platforms are tracked across runs via `platform-health.json`
 
 ### Phase 5. Optional Use Of Go OpenClaw Components
 Objective:

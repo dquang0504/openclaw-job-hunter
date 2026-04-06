@@ -26,6 +26,18 @@ function buildAIExcerpt(text, limit = 800) {
     return `${head} ... ${tail}`;
 }
 
+function buildAIJobPayload(job, index) {
+    return {
+        id: index,
+        source: job.source,
+        title: job.title?.slice(0, 120) || 'N/A',
+        location: job.location || 'Unknown',
+        postedDate: job.postedDate || 'Unknown',
+        company: job.company || 'Unknown',
+        description: buildAIExcerpt(job.description || job.preview || 'N/A')
+    };
+}
+
 /**
  * Batch validate ALL jobs from ALL platforms with ONE API call
  */
@@ -47,7 +59,7 @@ async function batchValidateJobsWithAI(jobs) {
             };
         }
 
-        // Twitter/TopCV - strict golang requirement
+        // Social/legacy board fallback - strict golang requirement
         const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now|hiring!|new.+job|remote job|looking for|we need|developer needed)\b/i;
         const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking|can't hate|first guy|if you're a)\b/i;
         const golangPatterns = /\b(golang|go\s*developer|go\s*backend|go\s*engineer|go\s*programming)\b/i;
@@ -80,9 +92,7 @@ async function batchValidateJobsWithAI(jobs) {
         try {
             console.log('  📤 Sending batch to Groq (Llama3-70b)...');
 
-            const jobList = jobs.map((job, i) =>
-                `[ID:${i}] SOURCE: ${job.source} | TITLE: ${job.title?.slice(0, 120) || 'N/A'} | LOCATION: ${job.location || 'Unknown'} | DATE: ${job.postedDate || 'Unknown'} | DESC: ${buildAIExcerpt(job.description || job.preview || 'N/A')}`
-            ).join('\n');
+            const jobList = JSON.stringify(jobs.map(buildAIJobPayload), null, 2);
 
             const systemPrompt = `You are an expert Job Hunter AI.
 Your task is to analyze a list of job postings and filter for REAL Golang/Go software development jobs.
@@ -102,7 +112,7 @@ Format:
             const completion = await groq.chat.completions.create({
                 messages: [
                     { role: "system", content: systemPrompt },
-                    { role: "user", content: jobList }
+                    { role: "user", content: `Analyze this JSON array of jobs:\n${jobList}` }
                 ],
                 model: "llama-3.3-70b-versatile",
                 temperature: 0.1,

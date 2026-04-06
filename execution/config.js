@@ -5,6 +5,11 @@
 const path = require('path');
 
 const CONFIG = {
+    platforms: {
+        active: ['twitter', 'facebook', 'threads', 'indeed', 'topdev', 'itviec', 'vercel', 'cloudflare'],
+        inactive: ['linkedin', 'topcv'],
+        cookieBacked: ['twitter', 'facebook', 'threads', 'topdev', 'itviec', 'vercel']
+    },
     keywords: [
         'golang'
     ],
@@ -54,6 +59,7 @@ const CONFIG = {
         logs: path.join(__dirname, '..', 'logs'),
         screenshots: path.join(__dirname, '..', '.tmp', 'screenshots'),
         seenJobs: path.join(__dirname, '..', 'logs', 'seen-jobs.json'),
+        platformHealth: path.join(__dirname, '..', 'logs', 'platform-health.json'),
         vercelCache: path.join(__dirname, '..', 'logs', 'vercel-cache.json'),
         cloudflareCache: path.join(__dirname, '..', 'logs', 'cloudflare-cache.json')
     },

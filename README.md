@@ -35,12 +35,13 @@ Those files may still exist in the repo, but GitHub Actions and the OpenClaw run
 ## Architecture
 
 Runtime flow:
-1. [`execution/job-search.js`](execution/job-search.js) bootstraps Playwright, cookies, env, reporter, and state
-2. [`execution/openclaw/runner.js`](execution/openclaw/runner.js) orchestrates the run
-3. [`execution/openclaw/tasks/index.js`](execution/openclaw/tasks/index.js) wraps scrapers into a common task contract
-4. Scrapers in [`execution/scrapers`](execution/scrapers) collect raw candidates
-5. Shared logic in [`execution/lib`](execution/lib) filters, dedups, validates, and reports
-6. Run telemetry is written to `logs/openclaw-run-*.json`
+1. [`execution/job-search.js`](execution/job-search.js) bootstraps env, reporter, state, and browser/session setup
+2. [`execution/openclaw/browser.js`](execution/openclaw/browser.js) creates the browser context and loads cookies
+3. [`execution/openclaw/runner.js`](execution/openclaw/runner.js) orchestrates the run
+4. [`execution/openclaw/tasks/index.js`](execution/openclaw/tasks/index.js) wraps scrapers into a common task contract
+5. Scrapers in [`execution/scrapers`](execution/scrapers) collect raw candidates
+6. Shared logic in [`execution/lib`](execution/lib) filters, dedups, validates, and reports
+7. Run telemetry is written to `logs/openclaw-run-*.json`
 
 OpenClaw here is not a separate browser engine. Playwright still drives the browser. OpenClaw is the orchestration layer on top of it.
 
@@ -114,6 +115,9 @@ Single-platform example:
 
 ```bash
 npm run search:twitter
+npm run search:facebook
+npm run search:threads
+npm run smoke:openclaw
 ```
 
 Direct entrypoint examples:
@@ -136,6 +140,7 @@ Current cron behavior:
   - `threads`
   - `others` (`twitter,indeed,vercel,cloudflare,topdev,itviec`)
 - merges seen-job/cache artifacts in a follow-up job
+- updates `platform-health.json` so repeated blocked/failed platforms can be tracked across runs
 
 Secrets currently used by the workflow:
 - `TELEGRAM_BOT_TOKEN`
@@ -155,6 +160,7 @@ Important runtime files:
 - `logs/seen-jobs.json`: dedup and stale memory
 - `logs/job-search-*.json`: raw collected job snapshots
 - `logs/openclaw-run-*.json`: run-level task telemetry
+- `logs/platform-health.json`: consecutive blocked/failed platform health state
 - `logs/vercel-cache.json`: Vercel analytics cache
 - `logs/cloudflare-cache.json`: Cloudflare cache
 - `.tmp/screenshots/`: error/auth/debug screenshots
@@ -165,6 +171,7 @@ Important runtime files:
 - Mixed posts with both senior and junior roles are kept if they include at least one target junior role
 - `Hanoi only` is filtered out, but mixed location posts such as `HCM + Hanoi` are allowed
 - On auth/session failures, the scraper captures a screenshot, sends it to Telegram, and skips that platform instead of crashing the whole run
+- GitHub Actions merge step tracks repeated `blocked` or `failed` platforms over time and stores that state in `logs/platform-health.json`
 
 ## Repo Layout
 

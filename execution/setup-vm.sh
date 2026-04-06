@@ -31,19 +31,14 @@ sudo apt-get install -y \
 
 # 4. Clone/setup project
 echo "📂 Setting up project structure..."
-mkdir -p ~/openclaw-automation/{execution,directives,docs,.cookies,.openclaw,logs}
-cd ~/openclaw-automation
+mkdir -p ~/openclaw-job-hunter/{execution,directives,docs,.cookies,.tmp/screenshots,logs}
+cd ~/openclaw-job-hunter
 
-# 5. Initialize npm and install dependencies
+# 5. Install npm dependencies
 echo "📦 Installing npm dependencies..."
-npm init -y
-npm install playwright @playwright/test dotenv node-telegram-bot-api
-
-# 6. Install Playwright browsers
-echo "🌐 Installing Chromium browser..."
-npx playwright install chromium
-
-# 7. Verify installation
+npm install --no-audit
+npx playwright install chromium --with-deps
+# 6. Verify installation
 echo ""
 echo "✅ Installation complete!"
 echo "   Node.js: $(node --version)"

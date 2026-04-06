@@ -1,7 +1,13 @@
 # Job Search Directive
 
 ## Goal
-Search for Golang/Go developer positions suitable for freshers, interns, and junior developers across TopCV.vn and X (Twitter).
+Search for Golang/Go developer positions suitable for freshers, interns, and junior developers across the currently active runtime scrapers:
+- Facebook groups
+- X (Twitter)
+- Threads
+- Indeed
+- TopDev
+- ITViec
 
 ## Inputs
 - Search keywords (case-insensitive):
@@ -53,6 +59,7 @@ Search for Golang/Go developer positions suitable for freshers, interns, and jun
 - Run every 4 hours during active hours: 06:00, 10:00, 14:00, 18:00, 22:00 (Vietnam time)
 
 ## Known Issues & Learnings
-- TopCV.vn: Rate limiting after ~50 requests, add 30-60 second cooldown between keyword searches
 - X (Twitter): Requires valid session cookies, login wall appears without them
-- LinkedIn: Aggressive bot detection, currently excluded from automation
+- Facebook: Older posts must be marked stale and remembered to avoid replay
+- Threads: Login/session issues can surface via Instagram login interstitials
+- LinkedIn and TopCV exist as legacy/inactive paths and are currently excluded from runtime automation

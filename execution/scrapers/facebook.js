@@ -118,6 +118,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     const searchKeyword = 'golang';
     const maxPostsPerGroup = options.maxPostsPerGroup || 15;
     const maxNewJobsPerGroup = options.maxNewJobsPerGroup || 5;
+    const groupsToScan = options.groups || CONFIG.facebookGroups;
     let authIssueDetected = false;
     let scannedPosts = 0;
     const warnings = [];
@@ -145,7 +146,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     // Filter for 2026: start_year:2026, end_year:2026
     const RECENT_POSTS_FILTER = 'eyJyZWNlbnRfcG9zdHM6MCI6IntcIm5hbWVcIjpcInJlY2VudF9wb3N0c1wiLFwiYXJnc1wiOlwiXCJ9IiwicnBfY3JlYXRpb25fdGltZTowIjoie1wibmFtZVwiOlwiY3JlYXRpb25fdGltZVwiLFwiYXJnc1wiOlwie1xcXCJzdGFydF95ZWFyXFxcIjpcXFwiMjAyNlxcXCIsXFxcInN0YXJ0X21vbnRoXFxcIjpcXFwiMjAyNi0xXFxcIixcXFwiZW5kX3llYXJcXFwiOlxcXCIyMDI2XFxcIixcXFwiZW5kX21vbnRoXFxcIjpcXFwiMjAyNi0xMlxcXCIsXFxcInN0YXJ0X2RheVxcXCI6XFxcIjIwMjYtMS0xXFxcIixcXFwiZW5kX2RheVxcXCI6XFxcIjIwMjYtMTItMzFcXFwifVwifSJ9';
 
-    for (const groupUrl of CONFIG.facebookGroups) {
+    for (const groupUrl of groupsToScan) {
         if (authIssueDetected) break;
         try {
             const cleanGroupUrl = groupUrl.replace(/\/$/, '')
@@ -592,7 +593,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
         warnings,
         metrics: {
             scannedCount: scannedPosts,
-            groupCount: CONFIG.facebookGroups.length
+            groupCount: groupsToScan.length
         }
     };
 }

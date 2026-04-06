@@ -1,12 +1,15 @@
 {
-  "name": "openclaw-automation",
+  "name": "openclaw-job-hunter",
   "version": "1.0.0",
   "description": "Job hunting automation for Golang positions",
   "main": "execution/job-search.js",
   "scripts": {
     "search": "node execution/job-search.js",
     "search:dry": "node execution/job-search.js --dry-run",
-    "search:twitter": "node execution/job-search.js --platform=twitter"
+    "search:twitter": "node execution/job-search.js --platform=twitter",
+    "search:facebook": "node execution/job-search.js --platform=facebook",
+    "search:threads": "node execution/job-search.js --platform=threads",
+    "smoke:openclaw": "node testing/test-openclaw-runner-smoke.js"
   },
   "keywords": [
     "job-search",

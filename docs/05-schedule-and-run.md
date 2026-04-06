@@ -11,7 +11,7 @@ crontab -e
 Add this line (runs at 6am, 10am, 2pm, 6pm, 10pm Vietnam time):
 
 ```cron
-0 6,10,14,18,22 * * * cd /home/azureuser/openclaw-automation && /usr/bin/node execution/job-search.js >> logs/cron.log 2>&1
+0 6,10,14,18,22 * * * cd /home/azureuser/openclaw-job-hunter && /usr/bin/node execution/job-search.js >> logs/cron.log 2>&1
 ```
 
 Save and exit.
@@ -21,13 +21,13 @@ Save and exit.
 Before enabling cron, test manually:
 
 ```bash
-cd ~/openclaw-automation
+cd ~/openclaw-job-hunter
 
 # Dry run (doesn't send to Telegram)
-node execution/job-search.js --dry-run --platform=topcv
+node execution/job-search.js --dry-run --platform=facebook
 
 # Test Telegram integration
-node execution/job-search.js --platform=topcv
+node execution/job-search.js --platform=facebook
 ```
 
 ## 5.3 View Logs
@@ -63,7 +63,8 @@ The cron job will automatically run at the next scheduled time.
 |---------|---------|
 | `node execution/job-search.js` | Run full search |
 | `node execution/job-search.js --dry-run` | Test without Telegram |
-| `node execution/job-search.js --platform=topcv` | TopCV only |
+| `node execution/job-search.js --platform=facebook` | Facebook only |
 | `node execution/job-search.js --platform=twitter` | X only |
+| `node execution/job-search.js --platform=threads` | Threads only |
 | `crontab -l` | View scheduled jobs |
 | `tail -f logs/job-search.log` | Live logs |

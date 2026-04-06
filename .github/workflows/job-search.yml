@@ -61,6 +61,7 @@ jobs:
         with:
           path: |
             logs/seen-jobs.json
+            logs/platform-health.json
             logs/rophim-cache.json
             logs/vercel-cache.json
             logs/cloudflare-cache.json
@@ -140,6 +141,7 @@ jobs:
         with:
           path: |
             logs/seen-jobs.json
+            logs/platform-health.json
             logs/rophim-cache.json
             logs/vercel-cache.json
             logs/cloudflare-cache.json
@@ -159,9 +161,13 @@ jobs:
           
       - name: Merge Deduplication Data
         # Artifacts download to .tmp/artifacts/{artifact_name}/...
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           echo "Merging seen-jobs..."
           node tools/merge-seen-jobs.js .tmp/artifacts logs/seen-jobs.json
+          node tools/update-platform-health.js .tmp/artifacts logs/platform-health.json
           
           # Restore updated Vercel cache if exists
           if [ -f .tmp/artifacts/cache-vercel/vercel-cache.json ]; then
@@ -181,6 +187,7 @@ jobs:
         with:
           path: |
             logs/seen-jobs.json
+            logs/platform-health.json
             logs/rophim-cache.json
             logs/vercel-cache.json
             logs/cloudflare-cache.json
