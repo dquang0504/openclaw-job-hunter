@@ -11,8 +11,8 @@ const CONFIG = {
     jobFreshnessDays: 7,
     seenJobsRetentionDays: 120,
     keywordRegex: /\b(golang|go\s+developer|go\s+backend|\bGo\b|blockchain)\b/i,
-    // Exclude > 2 years
-    excludeRegex: /\b(senior|lead|manager|principal|staff|architect|(\d{2,}|[3-9])\s*(\+|plus)?\s*years?|2\+\s*years?)\b/i,
+    // Exclude senior-only or 3+ years. Mixed-role posts with junior/fresher roles are handled in filters.
+    excludeRegex: /\b(senior|lead|manager|principal|staff|architect|(\d{2,}|[3-9])\s*(\+|plus)?\s*years?)\b/i,
     includeRegex: /\b(fresher|intern|junior|entry[\s-]?level|graduate|trainee)\b/i,
 
     // Only accept jobs from current year and previous year

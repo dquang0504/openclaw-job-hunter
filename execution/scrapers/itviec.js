@@ -3,7 +3,7 @@
  */
 
 const CONFIG = require('../config');
-const { calculateMatchScore } = require('../lib/filters');
+const { calculateMatchScore, shouldRejectForLevel } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -300,10 +300,10 @@ async function scrapeITViec(page, reporter) {
                                 job.matchScore = calculateMatchScore(job);
 
                                 // Filters
-                                if (CONFIG.excludeRegex.test(job.title)) return;
+                                if (shouldRejectForLevel(job.title)) return;
 
                                 // High YoE Check (Strict > 3 years)
-                                if (description && /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(description)) {
+                                if (description && shouldRejectForLevel(description)) {
                                     return;
                                 }
 

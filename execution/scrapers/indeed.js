@@ -5,7 +5,7 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
+const { analyzeLocation, calculateMatchScore, shouldRejectForLevel } = require('../lib/filters');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
@@ -86,21 +86,15 @@ async function scrapeIndeed(page, reporter) {
                         // --- FAST FILTER ---
                         const locLower = locationNorm; // already lowercase
 
-                        // Valid Targets
-                        const isRemote = locLower.includes('remote') || locLower.includes('tu xa') ||
-                            locLower.includes('can tho');
-
-                        // Invalid Targets (Hard Block)
-                        const isHanoiHCM = locLower.includes('ha noi') || locLower.includes('ho chi minh') || locLower.includes('hcm') || locLower.includes('saigon');
-
-                        if (!isRemote && isHanoiHCM) {
+                        const fastLocation = analyzeLocation(locLower);
+                        if (fastLocation.isHanoiOnly) {
                             // Reject immediately
                             // console.log(`    ❌ Skipped (Fast Loc): ${locationRaw}`);
                             continue;
                         }
 
                         // Check Exclude Title
-                        if (CONFIG.excludeRegex.test(normalizeText(title))) {
+                        if (shouldRejectForLevel(normalizeText(title))) {
                             console.log(`    ❌ Skipped (Fast Title): ${title}`);
                             continue;
                         }
@@ -138,8 +132,8 @@ async function scrapeIndeed(page, reporter) {
                         }
 
                         // Re-check Location in Description
-                        const descRemote = jobTextNorm.includes('remote') || jobTextNorm.includes('lam viec tu xa') || jobTextNorm.includes('can tho');
-                        if (!isRemote && isHanoiHCM && !descRemote) {
+                        const deepLocation = analyzeLocation(jobTextNorm);
+                        if (deepLocation.isHanoiOnly) {
                             console.log(`      ❌ Skipped (Verify Loc Failed)`);
                             continue;
                         }

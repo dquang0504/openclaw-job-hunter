@@ -8,6 +8,7 @@
 
 const Groq = require('groq-sdk');
 const CONFIG = require('../config');
+const { shouldRejectForLevel } = require('./filters');
 
 // Initialize Groq if API key available
 const groqApiKey = process.env.GROQ_API_KEY;
@@ -44,16 +45,18 @@ async function batchValidateJobsWithAI(jobs) {
 
         const isHiring = hiringPatterns.test(text) && !personalPatterns.test(text);
         const hasGolang = golangPatterns.test(text);
+        const passesLevel = !shouldRejectForLevel(text);
 
         let score = 3;
         if (isHiring) score += 3;
         if (hasGolang) score += 3;
         if (isHiring && hasGolang) score = 8;
+        if (!passesLevel) score = Math.min(score, 3);
 
         return {
-            isValid: score >= 6,
+            isValid: passesLevel && score >= 6,
             score: Math.min(10, score),
-            reason: 'regex'
+            reason: passesLevel ? 'regex' : 'regex-level-reject'
         };
     };
 
@@ -81,7 +84,7 @@ Rules:
 3. Score from 1-10 (10 = Perfect Golang Job match, 1 = Spam/Irrelevant).
 4. Extract key details: Location (CHECK DESCRIPTION CAREFULLY. If metadata says 'Remote' but description says 'Hanoi', use 'Hanoi'), Posted Date (convert relative to absolute if possible, or keep as is), Tech Stack.
 5. Ignore "looking for job" posts (candidates asking for work).
-6. CRITICAL: If the job requires more than 2 years of experience (e.g. 3+, 3-5 years, Senior), mark isValid=false or score=1. We are looking for Fresher/Junior/Mid (<2 YOE) only.
+6. CRITICAL: Reject the posting only if it is exclusively senior/high-experience. If the same posting includes at least one clear Fresher/Junior/Intern or <=2 YOE Golang role, keep it valid even if other roles in the same post are Senior/Lead/Manager or 3+ YOE.
 
 Output JSON ARRAY ONLY. No markdown, no text.
 Format:

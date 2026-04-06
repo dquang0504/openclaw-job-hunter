@@ -4,7 +4,7 @@
  */
 
 const CONFIG = require('../config');
-const { calculateMatchScore } = require('../lib/filters');
+const { calculateMatchScore, shouldRejectForLevel } = require('../lib/filters');
 const { randomDelay, mouseJiggle, smoothScroll } = require('../lib/stealth');
 const ScreenshotDebugger = require('../lib/screenshot');
 
@@ -177,10 +177,10 @@ async function scrapeTopDev(page, reporter) {
                         job.matchScore = calculateMatchScore(job);
 
                         // Exclude Regex Check
-                        if (CONFIG.excludeRegex.test(job.title)) continue;
+                        if (shouldRejectForLevel(job.title)) continue;
 
                         // Strict "3 years" check in description if extracted
-                        if (description && /\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yoe)\b/i.test(description)) {
+                        if (description && shouldRejectForLevel(description)) {
                             // console.log(`      ⚠️ Skipped (High YoE in desc): ${title}`);
                             continue;
                         }

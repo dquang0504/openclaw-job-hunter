@@ -10,7 +10,7 @@ const {
     mouseJiggle,
     applyStealthSettings
 } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
+const { analyzeLocation, calculateMatchScore, shouldRejectForLevel } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -209,26 +209,22 @@ async function scrapeLinkedIn(page, reporter) {
                             console.log(`      ❌ [Target Failed] Missing Keyword: ${cleanTitle}`);
                             return null;
                         }
-                        if (CONFIG.excludeRegex.test(fullText)) {
+                        if (shouldRejectForLevel(fullText)) {
                             console.log(`      ❌ [Target Failed] Senior/Lead: ${cleanTitle}`);
                             return null;
                         }
 
                         // Location Logic
-                        const normalizedLoc = normalizeText(cleanLocation);
-                        const normalizedDesc = normalizeText(description);
-                        const locCheck = normalizedLoc + " " + normalizedDesc;
-
-                        if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(locCheck)) {
+                        const locationInfo = analyzeLocation(`${cleanLocation} ${description}`);
+                        if (locationInfo.isHanoiOnly) {
                             console.log(`      ❌ [Target Failed] Location Hanoi`);
                             return null;
                         }
 
-                        let finalLocation = 'Unknown';
-                        if (/\b(hcm|ho chi minh|saigon|tphcm)\b/.test(locCheck)) finalLocation = 'HCM';
-                        else if (/\b(can tho|cantho)\b/.test(locCheck)) finalLocation = 'Can Tho';
-                        else if (/\b(remote)\b/.test(locCheck)) finalLocation = 'Remote';
-                        else finalLocation = cleanLocation;
+                        let finalLocation = locationInfo.preferredLocation;
+                        if (finalLocation === 'Unknown' || finalLocation === 'Hanoi') {
+                            finalLocation = cleanLocation;
+                        }
 
                         const job = {
                             title: cleanTitle,
@@ -373,22 +369,23 @@ async function scrapeLinkedIn(page, reporter) {
                         console.log(`      ❌ Filtered (Post): Keyword missed in "${contentText.slice(0, 30)}..."`);
                         continue;
                     }
-                    if (CONFIG.excludeRegex.test(fullText)) {
+                    if (shouldRejectForLevel(fullText)) {
                         console.log(`      ❌ Filtered (Post): Senior/Lead in "${contentText.slice(0, 30)}..."`);
                         continue;
                     }
 
                     // Location Filter (Posts)
-                    if (/\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(fullText)) {
+                    const postLocationInfo = analyzeLocation(fullText);
+                    if (postLocationInfo.isHanoiOnly) {
                         console.log(`      ❌ Filtered out (Post): Location is Hanoi`);
                         continue;
                     }
 
                     // Priority Location check for Posts (Optional, but good for scoring)
-                    let postLocation = 'Unknown';
-                    if (/\b(hcm|ho chi minh|saigon|tphcm)\b/.test(fullText)) postLocation = 'HCM';
-                    else if (/\b(can tho)\b/.test(fullText)) postLocation = 'Can Tho';
-                    else if (/\b(remote)\b/.test(fullText)) postLocation = 'Remote';
+                    let postLocation = postLocationInfo.preferredLocation;
+                    if (postLocation === 'Hanoi') {
+                        postLocation = 'Unknown';
+                    }
 
                     const job = {
                         title: postTitle,

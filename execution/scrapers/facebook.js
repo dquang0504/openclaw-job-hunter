@@ -4,7 +4,7 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, applyStealthSettings, idleBehavior } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
+const { analyzeLocation, calculateMatchScore, shouldRejectForLevel } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 const { extractDateCandidate, getJobFreshnessInfo } = require('../utils/date');
 
@@ -316,20 +316,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     const cleanEarlyText = normalizeText(earlyText);
 
                     // 1. Check Exclusions (Senior/Manager/etc)
-                    if (CONFIG.excludeRegex.test(cleanEarlyText)) {
+                    if (shouldRejectForLevel(cleanEarlyText)) {
                         console.log(`      ❌ [Early] Filtered out: Senior/Lead/Manager detected`);
                         continue;
                     }
 
-                    // 2. Check Location (Optimized)
-                    // Rule: If Hanoi is present, ONLY exclude if no other valid location (HCM/Can Tho/Remote) is found.
-                    // If HCM + Hanoi -> Valid (Multiple locations).
-                    const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanEarlyText);
-                    const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanEarlyText);
-                    const isCanTho = /\b(can tho|cantho)\b/.test(cleanEarlyText);
-                    const isRemote = /\b(remote)\b/.test(cleanEarlyText);
-
-                    if (isHanoi && !isHCM && !isCanTho && !isRemote) {
+                    const earlyLocation = analyzeLocation(cleanEarlyText);
+                    if (earlyLocation.isHanoiOnly) {
                         console.log(`      ❌ [Early] Filtered out: Location is Hanoi (and no others)`);
                         continue;
                     }
@@ -520,13 +513,8 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     }
 
                     // 2. Experience Check
-                    if (CONFIG.excludeRegex.test(filterText)) {
+                    if (shouldRejectForLevel(filterText)) {
                         console.log(`      ❌ Filtered out: Senior/Lead/Manager detected`);
-                        continue;
-                    }
-                    const expMatch = filterText.match(/\b([3-9]|\d{2,})\s*(\+|plus)?\s*(năm|nam|years?|yrs?|yoe)\b/i);
-                    if (expMatch) {
-                        console.log(`      ❌ Filtered out: High Exp (${expMatch[0]})`);
                         continue;
                     }
 
@@ -540,21 +528,18 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
 
                     // Determine Location (Updated Logic: Hanoi allowed if valid location also exists)
                     // (cleanText is already defined above)
-                    const isHanoi = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/.test(cleanText);
-                    const isHCM = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/.test(cleanText);
-                    const isCanTho = /\b(can tho|cantho)\b/.test(cleanText);
-                    const isRemote = /\b(remote)\b/.test(cleanText);
+                    const locationInfo = analyzeLocation(cleanText);
 
                     // 1. Strict Exclusion: Hanoi ONLY
-                    if (isHanoi && !isHCM && !isCanTho && !isRemote) {
+                    if (locationInfo.isHanoiOnly) {
                         console.log(`      ❌ Filtered out: Location is Hanoi (and no others)`);
                         continue;
                     }
 
                     // 2. Assign Location
-                    if (isHCM) job.location = 'HCM';
-                    else if (isCanTho) job.location = 'Can Tho';
-                    else if (isRemote) job.location = 'Remote';
+                    if (locationInfo.preferredLocation !== 'Unknown' && locationInfo.preferredLocation !== 'Hanoi') {
+                        job.location = locationInfo.preferredLocation;
+                    }
                     // Else: Unknown (Keep)
 
                     // Match Score
