@@ -115,6 +115,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
     const jobs = [];
     const staleUrls = new Set();
     const context = page.context();
+    const searchKeyword = 'golang';
 
     // --- WARM UP PHASE ---
     try {
@@ -141,15 +142,15 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
 
     for (const groupUrl of CONFIG.facebookGroups) {
         try {
-            const keyword = 'golang';
             const cleanGroupUrl = groupUrl.replace(/\/$/, '')
                 .replace('mbasic.facebook.com', 'www.facebook.com')
                 .replace('m.facebook.com', 'www.facebook.com');
+            const processedUrls = new Set();
+            let validPostsInGroup = 0;
 
-            // Desktop Search URL
-            const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(keyword)}&filters=${RECENT_POSTS_FILTER}`;
+            const searchUrl = `${cleanGroupUrl}/search?q=${encodeURIComponent(searchKeyword)}&filters=${RECENT_POSTS_FILTER}`;
 
-            console.log(`  👥 Visiting Group Search: ${cleanGroupUrl}`);
+            console.log(`  👥 Visiting Group Search: ${cleanGroupUrl} | keyword="${searchKeyword}"`);
 
             await page.setExtraHTTPHeaders({ 'Referer': cleanGroupUrl });
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -174,12 +175,13 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
             const postsCount = await page.locator(postSelector).count();
             console.log(`    📄 Found ${postsCount} potential posts in feed.`);
 
-            const maxPostsToCheck = Math.min(postsCount, 12); // Check up to 12
-            const processedUrls = new Set();
-            let validPostsInGroup = 0;
+            // Stop when either:
+            // 1. we found 5 new valid jobs in this group, or
+            // 2. we scanned the hard limit of 15 posts in this group.
+            const maxPostsToCheck = Math.min(postsCount, 15);
 
             for (let i = 0; i < maxPostsToCheck; i++) {
-                if (validPostsInGroup >= 5) break; // Limit per group
+                if (validPostsInGroup >= 5) break; // Found enough new valid jobs for this group
 
                 // Scroll to item
                 const post = page.locator(postSelector).nth(i);
@@ -188,10 +190,10 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     await page.waitForTimeout(500); // Settle
                 }
 
-                // Strategy: Extract Timestamp -> Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
-                // --- TIMESTAMP EXTRACTION START ---
-                let jobTime = 'Recent';
-                try {
+                    // Strategy: Extract Timestamp -> Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
+                    // --- TIMESTAMP EXTRACTION START ---
+                    let jobTime = 'Recent';
+                    try {
                     const svgs = await post.locator('span > span > svg, span > a > span[id] > span').all();
                     let targetSvg = null;
 
@@ -303,38 +305,36 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                             }
                         }
                     }
-                } catch (e) {
-                    console.log(`      ⚠️ Timestamp Extract Error: ${e.message}`);
-                    try { await page.mouse.up(); } catch (err) { }
-                }
-                // --- TIMESTAMP EXTRACTION END ---
-
-                // --- EARLY CONTENT CHECK (OPTIMIZATION) ---
-                let earlyText = '';
-                try {
-                    earlyText = await post.innerText();
-                    const cleanEarlyText = normalizeText(earlyText);
-
-                    // 1. Check Exclusions (Senior/Manager/etc)
-                    if (shouldRejectForLevel(cleanEarlyText)) {
-                        console.log(`      ❌ [Early] Filtered out: Senior/Lead/Manager detected`);
-                        continue;
+                    } catch (e) {
+                        console.log(`      ⚠️ Timestamp Extract Error: ${e.message}`);
+                        try { await page.mouse.up(); } catch (err) { }
                     }
+                    // --- TIMESTAMP EXTRACTION END ---
 
-                    const earlyLocation = analyzeLocation(cleanEarlyText);
-                    if (earlyLocation.isHanoiOnly) {
-                        console.log(`      ❌ [Early] Filtered out: Location is Hanoi (and no others)`);
-                        continue;
+                    // --- EARLY CONTENT CHECK (OPTIMIZATION) ---
+                    let earlyText = '';
+                    try {
+                        earlyText = await post.innerText();
+                        const cleanEarlyText = normalizeText(earlyText);
+
+                        // 1. Check Exclusions (Senior/Manager/etc)
+                        if (shouldRejectForLevel(cleanEarlyText)) {
+                            console.log(`      ❌ [Early] Filtered out: Senior/Lead/Manager detected`);
+                            continue;
+                        }
+
+                        const earlyLocation = analyzeLocation(cleanEarlyText);
+                        if (earlyLocation.isHanoiOnly) {
+                            console.log(`      ❌ [Early] Filtered out: Location is Hanoi (and no others)`);
+                            continue;
+                        }
+                    } catch (e) {
+                        // Ignore errors, proceed to deep scrape
                     }
+                    // --- END EARLY CHECK ---
 
-                    // Note: We don't check for 'Golang' keyword here strictly because it might be hidden in "See more..."
-                } catch (e) {
-                    // Ignore errors, proceed to deep scrape
-                }
-                // --- END EARLY CHECK ---
-
-                let postUrl = '';
-                try {
+                    let postUrl = '';
+                    try {
                     // Try to find permalink in standard locations
                     // 1. Timestamp usually has the link
                     const links = await post.locator('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/groups/"]').all();
@@ -352,36 +352,36 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                         // Remove tracking params
                         postUrl = postUrl.replace(/(\?|&)__cft__.*$/, '').replace(/(\?|&)ref=.*$/, '');
                     }
-                } catch (e) { }
+                    } catch (e) { }
 
-                if (!postUrl) {
+                    if (!postUrl) {
                     // console.log(`      ⚠️ Could not extract URL for post ${i}. Skipping.`);
-                    continue;
-                }
+                        continue;
+                    }
 
-                if (processedUrls.has(postUrl)) continue;
+                    if (processedUrls.has(postUrl)) continue;
 
-                // GLOBAL DEDUP CHECK
-                if (seenJobs.has(postUrl)) {
+                    // GLOBAL DEDUP CHECK
+                    if (seenJobs.has(postUrl)) {
                     // console.log(`      ⏩ Skipped (Global Dedup): ${postUrl}`);
-                    processedUrls.add(postUrl); // Mark processed to avoid re-checking in same run
-                    continue;
-                }
+                        processedUrls.add(postUrl); // Mark processed to avoid re-checking in same run
+                        continue;
+                    }
 
-                processedUrls.add(postUrl);
+                    processedUrls.add(postUrl);
 
-                const feedFreshness = getFreshnessInfo(jobTime, false);
-                if (feedFreshness.isKnown && feedFreshness.isStale) {
-                    staleUrls.add(postUrl);
-                    console.log(`      🗂️ Marked stale from feed date (${jobTime})`);
-                    continue;
-                }
+                    const feedFreshness = getFreshnessInfo(jobTime, false);
+                    if (feedFreshness.isKnown && feedFreshness.isStale) {
+                        staleUrls.add(postUrl);
+                        console.log(`      🗂️ Marked stale from feed date (${jobTime})`);
+                        continue;
+                    }
 
-                console.log(`    🔍 Inspecting Post ${i + 1}/${maxPostsToCheck}: ${postUrl}`);
+                    console.log(`    🔍 Inspecting Post ${i + 1}/${maxPostsToCheck}: ${postUrl}`);
 
-                // OPEN NEW TAB
-                let detailPage = null;
-                try {
+                    // OPEN NEW TAB
+                    let detailPage = null;
+                    try {
                     detailPage = await context.newPage();
                     console.log(`      🚀 Navigating to detail page...`);
 
@@ -549,15 +549,14 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set()) {
                     jobs.push(job);
                     validPostsInGroup++;
 
-                } catch (e) {
-                    console.log(`      ⚠️ Error processing detail page: ${e.message}`);
-                    await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
+                    } catch (e) {
+                        console.log(`      ⚠️ Error processing detail page: ${e.message}`);
+                        await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
                 } finally {
                     if (detailPage) await detailPage.close();
                     await randomDelay(500, 1000); // Optimized wait
                 }
             }
-
         } catch (error) {
             console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
             await screenshotDebugger.capture(page, 'fb_group_search_error');

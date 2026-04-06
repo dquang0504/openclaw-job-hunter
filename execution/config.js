@@ -8,6 +8,11 @@ const CONFIG = {
     keywords: [
         'golang'
     ],
+    socialSearchKeywords: [
+        'golang',
+        'go developer',
+        'go backend'
+    ],
     jobFreshnessDays: 7,
     seenJobsRetentionDays: 120,
     keywordRegex: /\b(golang|go\s+developer|go\s+backend|\bGo\b|blockchain)\b/i,

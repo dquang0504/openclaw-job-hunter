@@ -17,6 +17,15 @@ if (groqApiKey) {
     groq = new Groq({ apiKey: groqApiKey });
 }
 
+function buildAIExcerpt(text, limit = 800) {
+    const normalized = `${text || 'N/A'}`.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= limit) return normalized;
+
+    const head = normalized.slice(0, Math.floor(limit / 2));
+    const tail = normalized.slice(-Math.floor(limit / 2));
+    return `${head} ... ${tail}`;
+}
+
 /**
  * Batch validate ALL jobs from ALL platforms with ONE API call
  */
@@ -72,7 +81,7 @@ async function batchValidateJobsWithAI(jobs) {
             console.log('  📤 Sending batch to Groq (Llama3-70b)...');
 
             const jobList = jobs.map((job, i) =>
-                `[ID:${i}] SOURCE: ${job.source} | TITLE: ${job.title?.slice(0, 80)} | DESC: ${job.description?.slice(0, 150) || 'N/A'}`
+                `[ID:${i}] SOURCE: ${job.source} | TITLE: ${job.title?.slice(0, 120) || 'N/A'} | LOCATION: ${job.location || 'Unknown'} | DATE: ${job.postedDate || 'Unknown'} | DESC: ${buildAIExcerpt(job.description || job.preview || 'N/A')}`
             ).join('\n');
 
             const systemPrompt = `You are an expert Job Hunter AI.

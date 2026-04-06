@@ -326,6 +326,7 @@ async function scrapeKeyword(page, keyword, reporter) {
                     title: textRaw.split('\n')[0].slice(0, 100) || 'Golang Opportunity',
                     company: `@${post.username}`,
                     url: post.url || `https://threads.com/search?q=${encodeURIComponent(textRaw.slice(0, 20))}`,
+                    description: textRaw.slice(0, 5000),
                     preview: textRaw.slice(0, 200).trim(),
                     salary: salary,
                     location: location,
