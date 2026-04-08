@@ -10,7 +10,7 @@ function createRunPolicy(args = []) {
     const platformTimeouts = {
         twitterMs: 90_000,
         facebookMs: 15 * 60_000,
-        threadsMs: 90_000,
+        threadsMs: 5 * 60_000,
         indeedMs: 90_000,
         topdevMs: 90_000,
         itviecMs: 90_000,

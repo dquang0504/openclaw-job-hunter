@@ -41,12 +41,13 @@ async function main() {
     const runState = createRunState();
     const telemetry = createRunTelemetry(runPolicy);
     const healthTracker = createHealthTracker();
-    const { browser, page, userAgent } = await createBrowserSession();
+    const { browser, context, page, userAgent } = await createBrowserSession();
     console.log(`🕵️ Using User-Agent: ${userAgent}`);
     let allRawJobs = [];
 
     try {
         const runResult = await runOpenClaw({
+            context,
             page,
             reporter,
             runPolicy,

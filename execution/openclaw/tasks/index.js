@@ -40,10 +40,24 @@ function createTaskResult({
 }
 
 async function withTimeout(work, timeoutMs, timeoutMessage) {
-    return Promise.race([
-        work(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs))
-    ]);
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            const timeoutError = new Error(timeoutMessage);
+            timeoutError.code = 'TASK_TIMEOUT';
+            reject(timeoutError);
+        }, timeoutMs);
+
+        Promise.resolve()
+            .then(work)
+            .then(result => {
+                clearTimeout(timer);
+                resolve(result);
+            })
+            .catch(error => {
+                clearTimeout(timer);
+                reject(error);
+            });
+    });
 }
 
 function normalizeScrapeResult(platform, rawResult) {
@@ -154,9 +168,16 @@ async function executeTask(platform, taskDefinition, taskContext) {
         });
     }
 
+    const ownsTaskPage = Boolean(taskContext.context && platform !== 'cloudflare');
+    const taskPage = ownsTaskPage ? await taskContext.context.newPage() : taskContext.page;
+    const scopedTaskContext = {
+        ...taskContext,
+        page: taskPage
+    };
+
     try {
         const rawResult = await withTimeout(
-            () => taskDefinition.run(taskContext),
+            () => taskDefinition.run(scopedTaskContext),
             timeoutMs,
             `${platform} task timed out after ${timeoutMs}ms`
         );
@@ -173,14 +194,23 @@ async function executeTask(platform, taskDefinition, taskContext) {
             startedAt
         });
     } catch (error) {
-        await captureTaskFailure(platform, taskContext, error);
+        if (error.code === 'TASK_TIMEOUT') {
+            await taskPage.close().catch(() => { });
+            await scopedTaskContext.reporter.sendStatus(`⚠️ ${platform} timed out after ${Math.round(timeoutMs / 1000)}s and was skipped.`);
+        } else {
+            await captureTaskFailure(platform, scopedTaskContext, error);
+        }
         return createTaskResult({
             platform,
             status: 'failed',
-            warnings: ['Task failed and was skipped'],
+            warnings: [error.code === 'TASK_TIMEOUT' ? 'Task timed out and was skipped' : 'Task failed and was skipped'],
             error: error.message,
             startedAt
         });
+    } finally {
+        if (ownsTaskPage && !taskPage.isClosed()) {
+            await taskPage.close().catch(() => { });
+        }
     }
 }
 

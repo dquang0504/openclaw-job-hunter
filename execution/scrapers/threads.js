@@ -400,13 +400,16 @@ async function scrapeKeyword(page, keyword, reporter) {
         }
 
     } catch (error) {
-        console.error(`  ❌ Error searching "${keyword}": ${error.message}`);
-        await screenshotDebugger.captureError(page, 'threads', error);
+        const pageClosed = page.isClosed() || /target page, context or browser has been closed|page has been closed/i.test(error.message || '');
+        if (!pageClosed) {
+            console.error(`  ❌ Error searching "${keyword}": ${error.message}`);
+            await screenshotDebugger.captureError(page, 'threads', error);
+        }
         return {
-            jobs: [],
-            status: 'failed',
-            warnings: [`Keyword "${keyword}" failed: ${error.message}`],
-            error: error.message,
+            jobs,
+            status: pageClosed ? 'partial' : 'failed',
+            warnings: [pageClosed ? `Keyword "${keyword}" stopped after page shutdown` : `Keyword "${keyword}" failed: ${error.message}`],
+            error: pageClosed ? null : error.message,
             metrics: {
                 scannedCount: seenPostIds.size
             }

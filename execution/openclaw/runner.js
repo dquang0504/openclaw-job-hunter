@@ -4,6 +4,7 @@ const { randomDelay } = require('../lib/stealth');
 const { collectTaskResults } = require('./tasks');
 
 async function runOpenClaw({
+    context,
     page,
     reporter,
     runPolicy,
@@ -14,7 +15,7 @@ async function runOpenClaw({
     validateJobsFn = batchValidateJobsWithAI,
     delayFn = randomDelay
 }) {
-    const taskResults = await collectTaskResultsFn({ page, reporter, runPolicy, runState });
+    const taskResults = await collectTaskResultsFn({ context, page, reporter, runPolicy, runState });
     let allRawJobs = [];
 
     for (const taskResult of taskResults) {

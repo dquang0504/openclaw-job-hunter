@@ -69,11 +69,29 @@ class ScreenshotDebugger {
             const filepath = path.join(this.screenshotDir, filename);
 
             // Capture screenshot
-            await page.screenshot({
-                path: filepath,
-                fullPage: true,
-                timeout: 5000
-            });
+            try {
+                await page.screenshot({
+                    path: filepath,
+                    fullPage: true,
+                    animations: 'disabled',
+                    timeout: 15000
+                });
+            } catch (error) {
+                if (page.isClosed()) {
+                    throw error;
+                }
+
+                if (!/timeout/i.test(error.message || '')) {
+                    throw error;
+                }
+
+                await page.screenshot({
+                    path: filepath,
+                    fullPage: false,
+                    animations: 'disabled',
+                    timeout: 5000
+                });
+            }
 
             console.log(`📸 Screenshot saved: ${filename}`);
 
