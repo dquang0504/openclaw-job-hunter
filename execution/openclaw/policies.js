@@ -9,7 +9,7 @@ function createRunPolicy(args = []) {
     const taskOrder = [...CONFIG.platforms.active];
     const platformTimeouts = {
         twitterMs: 90_000,
-        facebookMs: 8 * 60_000,
+        facebookMs: 15 * 60_000,
         threadsMs: 90_000,
         indeedMs: 90_000,
         topdevMs: 90_000,
