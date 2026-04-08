@@ -62,4 +62,6 @@ Search for Golang/Go developer positions suitable for freshers, interns, and jun
 - X (Twitter): Requires valid session cookies, login wall appears without them
 - Facebook: Older posts must be marked stale and remembered to avoid replay
 - Threads: Login/session issues can surface via Instagram login interstitials
+- Facebook + Threads: Do not run both in parallel with the same account/session on separate runners; serialize those jobs to reduce forced logout and bot suspicion
+- Threads auth handling should stay passive: detect login interstitials and stop, do not auto-click into Instagram login flows
 - LinkedIn and TopCV exist as legacy/inactive paths and are currently excluded from runtime automation

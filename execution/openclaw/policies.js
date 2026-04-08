@@ -20,9 +20,17 @@ function createRunPolicy(args = []) {
     const platformConfigs = {
         facebook: {
             groups: CONFIG.facebookGroups,
-            maxPostsPerGroup: 15,
+            maxPostsPerGroup: 8,
             maxNewJobsPerGroup: 5,
-            stopAfterTotalRawJobs: 12
+            stopAfterTotalRawJobs: 8,
+            searchSettleMinMs: 3500,
+            searchSettleMaxMs: 6500,
+            preOpenPostMinMs: 1200,
+            preOpenPostMaxMs: 2800,
+            detailReadMinMs: 1500,
+            detailReadMaxMs: 3200,
+            groupCooldownMinMs: 8000,
+            groupCooldownMaxMs: 15000
         }
     };
 

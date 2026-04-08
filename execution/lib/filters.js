@@ -11,6 +11,8 @@ const HANOI_REGEX = /\b(hn|hanoi|ha noi|thu do|ha noi city)\b/i;
 const HCM_REGEX = /\b(hcm|ho chi minh|saigon|tphcm|hochiminh|tp hcm)\b/i;
 const CANTHO_REGEX = /\b(can tho|cantho)\b/i;
 const REMOTE_REGEX = /\b(remote|tu xa|từ xa|work from home|wfh)\b/i;
+const GLOBAL_REGEX = /\b(global|worldwide|world wide|anywhere|from anywhere|international)\b/i;
+const UNKNOWN_LOCATION_REGEX = /^\s*(unknown|n\/a|na|not specified|unspecified|negotiable|multiple|various|tbd)\s*$/i;
 
 function normalizeFilterText(text) {
     return (text || '')
@@ -34,6 +36,17 @@ function shouldRejectForLevel(text) {
     return hasDisqualifyingLevelSignal(normalized) && !hasTargetLevelSignal(normalized);
 }
 
+function isUnknownLocationValue(value) {
+    const normalized = normalizeFilterText(value);
+    return !normalized || UNKNOWN_LOCATION_REGEX.test(normalized);
+}
+
+function hasExplicitNonPreferredLocation(value) {
+    if (isUnknownLocationValue(value)) return false;
+    const locationInfo = analyzeLocation(value);
+    return !locationInfo.hasPreferredLocation;
+}
+
 function evaluateJob(job) {
     const text = normalizeFilterText(`${job.title} ${job.description || ''}`);
     const locationText = normalizeFilterText(`${job.location || ''} ${job.title || ''} ${job.description || ''}`);
@@ -48,6 +61,7 @@ function evaluateJob(job) {
     if (shouldRejectForLevel(text)) reasons.push('level_reject');
     if (!freshnessInfo.isFresh) reasons.push('stale');
     if (locationInfo.isHanoiOnly) reasons.push('hanoi_only');
+    if (hasExplicitNonPreferredLocation(job.location)) reasons.push('non_preferred_location');
 
     return {
         include: reasons.length === 0,
@@ -63,11 +77,13 @@ function analyzeLocation(text) {
     const isHCM = HCM_REGEX.test(normalized);
     const isCanTho = CANTHO_REGEX.test(normalized);
     const isRemote = REMOTE_REGEX.test(normalized);
+    const isGlobal = GLOBAL_REGEX.test(normalized);
 
     let preferredLocation = 'Unknown';
     if (isHCM) preferredLocation = 'HCM';
     else if (isCanTho) preferredLocation = 'Can Tho';
     else if (isRemote) preferredLocation = 'Remote';
+    else if (isGlobal) preferredLocation = 'Global';
     else if (isHanoi) preferredLocation = 'Hanoi';
 
     return {
@@ -76,8 +92,9 @@ function analyzeLocation(text) {
         isHCM,
         isCanTho,
         isRemote,
-        hasPreferredLocation: isHCM || isCanTho || isRemote,
-        isHanoiOnly: isHanoi && !isHCM && !isCanTho && !isRemote,
+        isGlobal,
+        hasPreferredLocation: isHCM || isCanTho || isRemote || isGlobal,
+        isHanoiOnly: isHanoi && !isHCM && !isCanTho && !isRemote && !isGlobal,
         preferredLocation
     };
 }
@@ -137,7 +154,9 @@ module.exports = {
     calculateMatchScore,
     evaluateJob,
     hasTargetLevelSignal,
+    hasExplicitNonPreferredLocation,
     isRecentJob,
+    isUnknownLocationValue,
     shouldIncludeJob,
     shouldRejectForLevel
 };

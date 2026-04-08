@@ -29,7 +29,7 @@ const CONFIG = {
     validYears: [new Date().getFullYear(), new Date().getFullYear() - 1],
 
     locations: {
-        primary: ['cần thơ', 'can tho', 'remote', 'từ xa', 'hồ chí minh', 'ho chi minh', 'hcm', 'saigon', 'tphcm'],
+        primary: ['cần thơ', 'can tho', 'remote', 'từ xa', 'global', 'worldwide', 'anywhere', 'hồ chí minh', 'ho chi minh', 'hcm', 'saigon', 'tphcm'],
         // User requested ONLY Remote or Can Tho or HCM (updated logic)
         secondary: []
     },

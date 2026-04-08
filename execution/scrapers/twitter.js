@@ -5,12 +5,45 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll } = require('../lib/stealth');
+const { analyzeLocation, calculateMatchScore, hasExplicitNonPreferredLocation } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
  * Helper: Normalize text to handle fancy fonts and accents
  */
 const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function cleanLocationValue(value) {
+    return (value || '')
+        .replace(/^[\s:,-]+|[\s:,-]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function extractLocation(text) {
+    const locationInfo = analyzeLocation(text);
+    if (locationInfo.preferredLocation !== 'Unknown' && locationInfo.preferredLocation !== 'Hanoi') {
+        return locationInfo.preferredLocation;
+    }
+    if (locationInfo.isHanoiOnly) {
+        return 'Hanoi';
+    }
+
+    const taggedMatch = text.match(/[📍📌]\s*([^\n|•]{2,80})/u);
+    if (taggedMatch) {
+        return cleanLocationValue(taggedMatch[1]);
+    }
+
+    const explicitLine = (text || '')
+        .split('\n')
+        .map(line => line.trim())
+        .find(line => /^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i.test(line));
+
+    if (!explicitLine) return 'Unknown';
+
+    const normalizedLine = explicitLine.replace(/^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i, '');
+    return cleanLocationValue(normalizedLine);
+}
 
 /**
  * Scrape jobs from X (Twitter)
@@ -73,6 +106,9 @@ async function scrapeTwitter(page, reporter) {
                     const dateTime = await timeEl.getAttribute('datetime').catch(() => null);
                     const url = tweetLink ? `https://x.com${tweetLink}` : 'https://x.com';
                     if (seenUrls.has(url)) continue;
+                    const location = extractLocation(text);
+                    const locationInfo = analyzeLocation(`${location} ${text}`);
+                    if (locationInfo.isHanoiOnly || hasExplicitNonPreferredLocation(location)) continue;
 
                     // Build raw job object
                     const job = {
@@ -80,17 +116,18 @@ async function scrapeTwitter(page, reporter) {
                         description: text,
                         company: authorHandle?.replace('/', '') || 'Twitter Post',
                         url: url,
-                        location: 'Remote/Global',
+                        location,
                         source: 'X (Twitter)',
                         techStack: 'Go/Golang',
                         postedDate: dateTime ? new Date(dateTime).toISOString().split('T')[0] : 'N/A',
-                        matchScore: 5  // Default, will be overwritten by AI
+                        matchScore: 5
                     };
 
                     // Basic filter - only include if has job-related keywords
                     const textNorm = normalizeText(text);
 
                     if (/\b(hiring|job|opening|developer|engineer|position|remote|golang|go backend|go developer|backend role)\b/i.test(textNorm)) {
+                        job.matchScore = calculateMatchScore(job);
                         jobs.push(job);
                         seenUrls.add(url);
                         console.log(`    📝 ${job.title.slice(0, 40)}...`);

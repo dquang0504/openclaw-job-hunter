@@ -4,8 +4,8 @@
  */
 
 const CONFIG = require('../config');
-const { randomDelay, humanScroll, mouseJiggle } = require('../lib/stealth');
-const { calculateMatchScore } = require('../lib/filters');
+const { randomDelay, humanScroll, mouseJiggle, idleBehavior } = require('../lib/stealth');
+const { analyzeLocation, hasExplicitNonPreferredLocation } = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -56,12 +56,27 @@ function extractSalary(text) {
  * Helper: Extract Location from text
  */
 function extractLocation(text) {
-    const textNorm = normalizeText(text);
+    const locationInfo = analyzeLocation(text);
+    if (locationInfo.preferredLocation !== 'Unknown' && locationInfo.preferredLocation !== 'Hanoi') return locationInfo.preferredLocation;
+    if (locationInfo.isHanoiOnly) return 'Hanoi';
 
-    if (textNorm.includes('remote') || textNorm.includes('tu xa') || textNorm.includes('wfh')) return 'Remote';
-    if (textNorm.match(/(hcm|ho chi minh|saigon|sai gon)/)) return 'Ho Chi Minh';
-    if (textNorm.match(/(ha noi|hanoi)/)) return 'Hanoi';
-    if (textNorm.match(/(da nang|danang)/)) return 'Da Nang';
+    const taggedMatch = text.match(/[📍📌]\s*([^\n|•]{2,80})/u);
+    if (taggedMatch) {
+        return taggedMatch[1].replace(/^[\s:,-]+|[\s:,-]+$/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    const explicitLine = (text || '')
+        .split('\n')
+        .map(line => line.trim())
+        .find(line => /^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i.test(line));
+
+    if (explicitLine) {
+        return explicitLine
+            .replace(/^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i, '')
+            .replace(/^[\s:,-]+|[\s:,-]+$/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
 
     return 'Unknown';
 }
@@ -203,7 +218,9 @@ async function scrapeKeyword(page, keyword, reporter) {
         console.log(`\n  🔍 Searching: "${keyword}" (Target: ~${TARGET_POSTS_PER_KEYWORD} posts)`);
 
         await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await randomDelay(2000, 3000);
+        await randomDelay(3000, 6000);
+        await mouseJiggle(page);
+        await idleBehavior(page);
 
         if (page.url().includes('/login')) {
             console.log('  🔒 Login wall detected.');
@@ -324,10 +341,13 @@ async function scrapeKeyword(page, keyword, reporter) {
                     // If unknown, KEEP it if content matches text search (which it does via isRelevantPost)
                 }
 
+                const location = extractLocation(textRaw);
+                const locationInfo = analyzeLocation(`${location} ${textRaw}`);
+                if (locationInfo.isHanoiOnly || hasExplicitNonPreferredLocation(location)) {
+                    continue;
+                }
                 newPostsCount++;
                 loadedPostsForKeyword++;
-
-                const location = extractLocation(textRaw);
                 const salary = extractSalary(textRaw);
                 const isFresher = textNorm.match(/(fresher|junior|intern|thuc tap|moi ra truong)/i) !== null;
                 const formattedDate = formatExactDate(post.timestamp);
@@ -367,7 +387,9 @@ async function scrapeKeyword(page, keyword, reporter) {
             }
 
             await humanScroll(page);
-            await randomDelay(4000, 6000);
+            await mouseJiggle(page);
+            await idleBehavior(page);
+            await randomDelay(5000, 9000);
 
             const currentHeight = await page.evaluate(() => document.body.scrollHeight);
             if (currentHeight === previousHeight) {
@@ -403,6 +425,18 @@ async function scrapeKeyword(page, keyword, reporter) {
     };
 }
 
+async function isThreadsAuthRequired(page) {
+    if (page.url().includes('/login')) {
+        return true;
+    }
+
+    const interstitial = page.locator('div[role="button"], button').filter({
+        hasText: /Tiếp tục bằng Instagram|Continue with Instagram|Log in with Instagram|Đăng nhập bằng Instagram/i
+    }).first();
+
+    return (await interstitial.count()) > 0;
+}
+
 /**
  * Scrape Threads in PARALLEL mode (Multi-tab)
  */
@@ -434,42 +468,30 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
     console.log('🧵 Searching Threads (Serial)...');
     const screenshotDebugger = new ScreenshotDebugger(reporter);
 
-    // --- LOGIN CHECK / SESSION RESTORE ---
     try {
         console.log('  🔐 Checking authentication status...');
         await page.goto('https://www.threads.com/', { waitUntil: 'domcontentloaded' });
-        await randomDelay(2000, 3000);
+        await randomDelay(3000, 6000);
+        await mouseJiggle(page);
+        await idleBehavior(page);
 
-        // Check for "Log in" or "Log in with Instagram" buttons
-        // Target specific Instagram login block based on user provided HTML structure
-        // Looking for "Tiếp tục bằng Instagram" or "Continue with Instagram" inside a role="button" or clickable div
-        const instaLoginBlock = page.locator('div[role="button"]').filter({ hasText: /Tiếp tục bằng Instagram|Continue with Instagram|Log in with Instagram/i }).first();
-
-        if (await instaLoginBlock.count() > 0) {
-            console.log('  👆 Found Instagram Login block, clicking...');
-            await instaLoginBlock.click();
-            await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
-            await randomDelay(3000, 5000);
-        } else {
-            // Fallback to standard buttons
-            const loginButtons = await page.getByRole('button', { name: /Log in|Tiếp tục|Continue/i }).all();
-            for (const btn of loginButtons) {
-                const text = await btn.innerText();
-                if (text.includes('Instagram') || (text.includes('Tiếp tục') && text.includes('Instagram')) || (text.includes('Continue') && text.includes('Instagram'))) {
-                    console.log(`  👆 Clicking login button: "${text}"`);
-                    await btn.click();
-                    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
-                    await randomDelay(3000, 5000);
-                    break;
+        if (await isThreadsAuthRequired(page)) {
+            await screenshotDebugger.captureAuthIssue(page, 'threads', 'Threads requires manual login or refreshed cookies');
+            await reporter.sendStatus('⚠️ Threads requires login - skipping instead of interacting with the login interstitial.');
+            return {
+                jobs: [],
+                status: 'blocked',
+                warnings: ['Threads authentication interstitial detected'],
+                metrics: {
+                    scannedCount: 0
                 }
-            }
+            };
         }
 
     } catch (e) {
         console.log(`  ⚠️ Login check failed: ${e.message}`);
         await screenshotDebugger.captureError(page, 'threads', e);
     }
-    // --- END LOGIN CHECK ---
 
     const defaultKeywords = ['golang'];
     const keywords = customKeywords || defaultKeywords;

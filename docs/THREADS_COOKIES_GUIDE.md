@@ -2,7 +2,7 @@
 
 ## Vấn đề
 Threads login qua Instagram, nên cookies cần bao gồm cả:
-- `.threads.net` domain
+- `.threads.com` domain
 - `.instagram.com` domain
 
 ## Cách Export Cookies đúng
@@ -21,7 +21,7 @@ Threads login qua Instagram, nên cookies cần bao gồm cả:
 4. **Quan trọng**: Cookies phải có cả 2 domains:
    ```json
    [
-     { "domain": ".threads.net", "name": "sessionid", ... },
+     { "domain": ".threads.com", "name": "sessionid", ... },
      { "domain": ".instagram.com", "name": "sessionid", ... },
      ...
    ]
@@ -61,5 +61,5 @@ Nếu fail sẽ thấy:
 
 ## Cookies hiện tại thiếu gì?
 
-File `.cookies/cookies-threads.json` hiện tại chỉ có cookies cho `.threads.net`.
+File `.cookies/cookies-threads.json` hiện tại thường chỉ có cookies cho `.threads.com`.
 Cần thêm cookies cho `.instagram.com` (đặc biệt là `sessionid`, `csrftoken`, `ds_user_id`).

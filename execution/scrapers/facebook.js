@@ -118,6 +118,14 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     const searchKeyword = 'golang';
     const maxPostsPerGroup = options.maxPostsPerGroup || 15;
     const maxNewJobsPerGroup = options.maxNewJobsPerGroup || 5;
+    const searchSettleMinMs = options.searchSettleMinMs || 3500;
+    const searchSettleMaxMs = options.searchSettleMaxMs || 6500;
+    const preOpenPostMinMs = options.preOpenPostMinMs || 1200;
+    const preOpenPostMaxMs = options.preOpenPostMaxMs || 2800;
+    const detailReadMinMs = options.detailReadMinMs || 1500;
+    const detailReadMaxMs = options.detailReadMaxMs || 3200;
+    const groupCooldownMinMs = options.groupCooldownMinMs || 8000;
+    const groupCooldownMaxMs = options.groupCooldownMaxMs || 15000;
     const groupsToScan = options.groups || CONFIG.facebookGroups;
     let authIssueDetected = false;
     let scannedPosts = 0;
@@ -128,8 +136,8 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
         console.log('🏠 Navigating to Facebook Home for warm-up...');
         await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
 
-        // Randomize warm-up duration (2-4s)
-        const warmUpDuration = 2000 + Math.random() * 2000;
+        // Randomize warm-up duration (4-8s)
+        const warmUpDuration = 4000 + Math.random() * 4000;
         const startTime = Date.now();
         console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
 
@@ -163,8 +171,9 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.setExtraHTTPHeaders({});
 
-            await randomDelay(2000, 3000);
+            await randomDelay(searchSettleMinMs, searchSettleMaxMs);
             await mouseJiggle(page);
+            await idleBehavior(page);
 
             // Check for Blocked/Login
             if (page.url().includes('checkpoint') || await page.locator('input[name="email"]').count() > 0) {
@@ -179,7 +188,8 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
             // Scroll to load posts
             console.log('    ⏳ Loading posts...');
             await humanScroll(page, 5);
-            await randomDelay(2000, 3000);
+            await idleBehavior(page);
+            await randomDelay(3000, 5000);
 
             // Desktop Selectors
             const postSelector = 'div[role="feed"] > div, div[role="article"]';
@@ -201,6 +211,8 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                     await post.scrollIntoViewIfNeeded();
                     await page.waitForTimeout(500); // Settle
                 }
+                await idleBehavior(page);
+                await randomDelay(preOpenPostMinMs, preOpenPostMaxMs);
 
                     // Strategy: Extract Timestamp -> Extract URL -> Open in New Tab -> Scrape -> Filter -> Close
                     // --- TIMESTAMP EXTRACTION START ---
@@ -439,8 +451,9 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                         console.log('      ⏳ Detail content stabilized.');
                     }
 
-                    // SIMULATE READING BEHAVIOR (OPTIMIZED)
-                    await randomDelay(500, 1000);
+                    await mouseJiggle(detailPage);
+                    await idleBehavior(detailPage);
+                    await randomDelay(detailReadMinMs, detailReadMaxMs);
 
                     // Get Full Text (Preferred from story_message)
                     let bodyText = '';
@@ -574,7 +587,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                         await screenshotDebugger.capture(detailPage || page, `fb_detail_error_${i}`);
                 } finally {
                     if (detailPage) await detailPage.close();
-                    await randomDelay(500, 1000); // Optimized wait
+                    await randomDelay(1500, 3000);
                 }
 
                 if (authIssueDetected) break;
@@ -582,6 +595,11 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
         } catch (error) {
             console.error(`  ❌ Error searching group ${groupUrl}: ${error.message}`);
             await screenshotDebugger.capture(page, 'fb_group_search_error');
+        } finally {
+            if (!authIssueDetected) {
+                await idleBehavior(page);
+                await randomDelay(groupCooldownMinMs, groupCooldownMaxMs);
+            }
         }
     }
 

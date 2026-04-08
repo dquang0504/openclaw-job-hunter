@@ -31,7 +31,22 @@ function getCookieFiles() {
 
 function sanitizeCookies(cookies = []) {
     return cookies.map(cookie => {
-        const nextCookie = { ...cookie };
+        const nextCookie = {
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path || '/',
+            secure: Boolean(cookie.secure),
+            httpOnly: Boolean(cookie.httpOnly)
+        };
+        if (cookie.url) {
+            nextCookie.url = cookie.url;
+        }
+        const expires = Number(cookie.expires ?? cookie.expirationDate);
+        if (Number.isFinite(expires) && expires > 0) {
+            nextCookie.expires = expires;
+        }
+        nextCookie.sameSite = cookie.sameSite;
         if (nextCookie.sameSite === 'no_restriction' || nextCookie.sameSite === 'unspecified') {
             nextCookie.sameSite = 'None';
         }

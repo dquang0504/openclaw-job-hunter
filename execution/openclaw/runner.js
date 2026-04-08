@@ -111,6 +111,13 @@ async function runOpenClaw({
                 telemetry.incrementDropReason('ai_invalid');
                 continue;
             }
+            const mappedEvaluation = evaluateJob(mappedJob);
+            if (!mappedEvaluation.include) {
+                for (const reason of mappedEvaluation.reasons) {
+                    telemetry.incrementDropReason(reason);
+                }
+                continue;
+            }
             if (mappedJob.matchScore < 5) {
                 telemetry.incrementDropReason('ai_low_score');
                 continue;
