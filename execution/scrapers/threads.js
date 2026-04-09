@@ -14,6 +14,13 @@ const ScreenshotDebugger = require('../lib/screenshot');
  */
 const normalizeText = (text) => (text || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+function cleanExtractedValue(value) {
+    return (value || '')
+        .replace(/^[\s:,-]+|[\s:,-]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 /**
  * Helper: Format Unix timestamp to dd/mm/yyyy hh:mm:ss
  */
@@ -34,35 +41,70 @@ function formatExactDate(timestamp) {
  * Helper: Extract Salary from text
  */
 function extractSalary(text) {
-    const textNorm = normalizeText(text);
+    const textRaw = `${text || ''}`;
+    const textNorm = normalizeText(textRaw);
 
-    // Check for explicit "negotiable" or "thỏa thuận"
-    if (textNorm.includes('negotiable') || textNorm.includes('thoa thuan') || textNorm.includes('thu nhap hap dan') || textNorm.includes('luong hap dan')) {
+    if (/\b(negotiable|thoa thuan|thu nhap hap dan|luong hap dan|competitive|open salary)\b/i.test(textNorm)) {
         return 'Negotiable';
     }
 
-    // Regex for money patterns
-    const moneyRegex = /((?:\$|usd\s?)\d{3,5}|\d{1,3}\s?(?:tr|trieu|m)(?:\s?-\s?\d{1,3}\s?(?:tr|trieu|m))?|\d{3,5}\s?(?:\$|usd))/gi;
-    const matches = textNorm.match(moneyRegex);
+    const moneyPatterns = [
+        /((?:USD|usd|\$)\s?\d{1,3}(?:[.,]\d{3})*(?:\s?-\s?(?:USD|usd|\$)?\s?\d{1,3}(?:[.,]\d{3})*)?)/,
+        /(\d{1,3}(?:[.,]\d{1,3})?\s?(?:tr|triệu|trieu|m)(?:\s?-\s?\d{1,3}(?:[.,]\d{1,3})?\s?(?:tr|triệu|trieu|m))?)/i,
+        /(\d{1,3}(?:[.,]\d{3})+\s?(?:vnd|vnđ|đ))/i
+    ];
 
-    if (matches && matches.length > 0) {
-        return matches[0].trim();
+    for (const pattern of moneyPatterns) {
+        const match = textRaw.match(pattern);
+        if (match?.[1]) {
+            return cleanExtractedValue(match[1]);
+        }
     }
 
     return 'Negotiable';
 }
 
 /**
- * Helper: Extract Location from text
+ * Helper: Extract tech stack from text instead of hardcoding it.
  */
-function extractLocation(text) {
+function extractTechStack(text) {
+    const normalized = normalizeText(text);
+    const techSignals = [
+        ['Go/Golang', /\b(golang|go\s?lang|go\s?dev|go\s?engineer|backend\s?go)\b/i],
+        ['Docker', /\bdocker\b/i],
+        ['Kubernetes', /\bkubernetes|k8s\b/i],
+        ['AWS', /\baws\b/i],
+        ['GCP', /\bgcp|google cloud\b/i],
+        ['Azure', /\bazure\b/i],
+        ['PostgreSQL', /\bpostgres(?:ql)?\b/i],
+        ['MySQL', /\bmysql\b/i],
+        ['MongoDB', /\bmongodb|mongo\b/i],
+        ['Redis', /\bredis\b/i],
+        ['Kafka', /\bkafka\b/i],
+        ['RabbitMQ', /\brabbitmq\b/i],
+        ['gRPC', /\bgrpc\b/i],
+        ['REST API', /\brest\s*api\b/i],
+        ['GraphQL', /\bgraphql\b/i],
+        ['Microservices', /\bmicroservices?\b/i]
+    ];
+
+    const matches = techSignals
+        .filter(([, pattern]) => pattern.test(normalized))
+        .map(([label]) => label)
+        .slice(0, 6);
+
+    return matches.length > 0 ? matches.join(', ') : 'Unknown';
+}
+
+function extractLocationSignal(text) {
     const locationInfo = analyzeLocation(text);
-    if (locationInfo.preferredLocation !== 'Unknown' && locationInfo.preferredLocation !== 'Hanoi') return locationInfo.preferredLocation;
-    if (locationInfo.isHanoiOnly) return 'Hanoi';
+    if (locationInfo.preferredLocation !== 'Unknown') {
+        return locationInfo.preferredLocation;
+    }
 
     const taggedMatch = text.match(/[📍📌]\s*([^\n|•]{2,80})/u);
     if (taggedMatch) {
-        return taggedMatch[1].replace(/^[\s:,-]+|[\s:,-]+$/g, '').replace(/\s+/g, ' ').trim();
+        return cleanExtractedValue(taggedMatch[1]);
     }
 
     const explicitLine = (text || '')
@@ -71,11 +113,18 @@ function extractLocation(text) {
         .find(line => /^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i.test(line));
 
     if (explicitLine) {
-        return explicitLine
-            .replace(/^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i, '')
-            .replace(/^[\s:,-]+|[\s:,-]+$/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+        return cleanExtractedValue(
+            explicitLine.replace(/^(location|dia diem|địa điểm|based in|onsite in|hybrid in|work location)\b/i, '')
+        );
+    }
+
+    return 'Unknown';
+}
+
+function canonicalizeLocation(locationSignal) {
+    const locationInfo = analyzeLocation(locationSignal);
+    if (locationInfo.preferredLocation !== 'Unknown') {
+        return locationInfo.preferredLocation;
     }
 
     return 'Unknown';
@@ -341,14 +390,16 @@ async function scrapeKeyword(page, keyword, reporter) {
                     // If unknown, KEEP it if content matches text search (which it does via isRelevantPost)
                 }
 
-                const location = extractLocation(textRaw);
-                const locationInfo = analyzeLocation(`${location} ${textRaw}`);
-                if (locationInfo.isHanoiOnly || hasExplicitNonPreferredLocation(location)) {
+                const locationSignal = extractLocationSignal(textRaw);
+                const location = canonicalizeLocation(locationSignal);
+                const locationInfo = analyzeLocation(`${locationSignal} ${textRaw}`);
+                if (locationInfo.isHanoiOnly || hasExplicitNonPreferredLocation(locationSignal)) {
                     continue;
                 }
                 newPostsCount++;
                 loadedPostsForKeyword++;
                 const salary = extractSalary(textRaw);
+                const techStack = extractTechStack(textRaw);
                 const isFresher = textNorm.match(/(fresher|junior|intern|thuc tap|moi ra truong)/i) !== null;
                 const formattedDate = formatExactDate(post.timestamp);
                 const matchScore = calculateInternalScore(textRaw, isFresher, salary, location);
@@ -362,7 +413,7 @@ async function scrapeKeyword(page, keyword, reporter) {
                     salary: salary,
                     location: location,
                     source: 'Threads',
-                    techStack: 'Golang',
+                    techStack: techStack,
                     postedDate: formattedDate,
                     matchScore: matchScore,
                     isFresher: isFresher
@@ -539,4 +590,13 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
     };
 }
 
-module.exports = { scrapeThreads, scrapeThreadsParallel };
+module.exports = {
+    scrapeThreads,
+    scrapeThreadsParallel,
+    __private: {
+        extractSalary,
+        extractTechStack,
+        extractLocationSignal,
+        canonicalizeLocation
+    }
+};
