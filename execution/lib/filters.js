@@ -13,6 +13,10 @@ const CANTHO_REGEX = /\b(can tho|cantho)\b/i;
 const REMOTE_REGEX = /\b(remote|tu xa|từ xa|work from home|wfh)\b/i;
 const GLOBAL_REGEX = /\b(global|worldwide|world wide|anywhere|from anywhere|international)\b/i;
 const UNKNOWN_LOCATION_REGEX = /^\s*(unknown|n\/a|na|not specified|unspecified|negotiable|multiple|various|tbd)\s*$/i;
+const HIRING_SIGNAL_REGEX = /\b(we('| a)?re hiring|now hiring|is hiring|#hiring|hiring for|job opening|open position|vacancy|vacancies|recruit(ing|er)?|apply now|send (your )?(cv|resume)|jd\b|join our team|headcount|tuy[eê]n|tuy[eê]n d[uụ]ng|c[oơ] h[oộ]i vi[eệ]c l[aà]m|vi[eệ]c l[aà]m|urgent hire|opening for|looking for)\b/i;
+const ROLE_SIGNAL_REGEX = /\b(golang|go\s+developer|go\s+backend|go\s+engineer|backend engineer|backend developer|software engineer|software developer|developer|engineer|intern|fresher|junior|entry[\s-]?level|trainee)\b/i;
+const NON_JOB_DISCUSSION_REGEX = /\b(my pick|my take|thoughts on|thought on|roadmap|tutorial|tip[s]?|learn(?:ing)?|study|review|comparison|showcase|side project|portfolio|demo|boilerplate|template|sample code|code snippet|cheat sheet|resource[s]?|bookmark[s]?|vs\b)\b/i;
+const CANDIDATE_SEEKING_REGEX = /\b(open to work|looking for (a )?job|seeking (a )?(job|role|opportunit)|find(ing)? (a )?job|need a job|need work|my cv|my resume|hire me|available for work)\b/i;
 
 function normalizeFilterText(text) {
     return (text || '')
@@ -34,6 +38,37 @@ function shouldRejectForLevel(text) {
     if (!normalized) return false;
 
     return hasDisqualifyingLevelSignal(normalized) && !hasTargetLevelSignal(normalized);
+}
+
+function hasHiringSignal(text) {
+    const normalized = normalizeFilterText(text);
+    return HIRING_SIGNAL_REGEX.test(normalized);
+}
+
+function hasRoleSignal(text) {
+    const normalized = normalizeFilterText(text);
+    return ROLE_SIGNAL_REGEX.test(normalized);
+}
+
+function looksLikeNonJobDiscussion(text) {
+    const normalized = normalizeFilterText(text);
+    return NON_JOB_DISCUSSION_REGEX.test(normalized);
+}
+
+function isCandidateSeekingPost(text) {
+    const normalized = normalizeFilterText(text);
+    return CANDIDATE_SEEKING_REGEX.test(normalized);
+}
+
+function looksLikeSocialHiringPost(text) {
+    const normalized = normalizeFilterText(text);
+    if (!normalized) return false;
+
+    if (isCandidateSeekingPost(normalized) || looksLikeNonJobDiscussion(normalized)) {
+        return false;
+    }
+
+    return hasHiringSignal(normalized) && hasRoleSignal(normalized);
 }
 
 function isUnknownLocationValue(value) {
@@ -153,10 +188,15 @@ module.exports = {
     analyzeLocation,
     calculateMatchScore,
     evaluateJob,
+    hasHiringSignal,
+    hasRoleSignal,
     hasTargetLevelSignal,
     hasExplicitNonPreferredLocation,
     isRecentJob,
+    isCandidateSeekingPost,
     isUnknownLocationValue,
+    looksLikeNonJobDiscussion,
+    looksLikeSocialHiringPost,
     shouldIncludeJob,
     shouldRejectForLevel
 };

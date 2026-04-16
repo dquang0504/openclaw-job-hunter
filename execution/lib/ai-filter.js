@@ -8,7 +8,7 @@
 
 const Groq = require('groq-sdk');
 const CONFIG = require('../config');
-const { shouldRejectForLevel } = require('./filters');
+const { looksLikeSocialHiringPost, shouldRejectForLevel } = require('./filters');
 
 // Initialize Groq if API key available
 const groqApiKey = process.env.GROQ_API_KEY;
@@ -59,14 +59,11 @@ async function batchValidateJobsWithAI(jobs) {
             };
         }
 
-        // Social/legacy board fallback - strict golang requirement
-        const hiringPatterns = /\b(is hiring|we're hiring|now hiring|#hiring|job opening|open position|hiring for|recruiting|apply now|hiring!|new.+job|remote job|looking for|we need|developer needed)\b/i;
-        const personalPatterns = /\b(i need|i('m| am) looking|i want|my job|just asking|can't hate|first guy|if you're a)\b/i;
         const golangPatterns = /\b(golang|go\s*developer|go\s*backend|go\s*engineer|go\s*programming)\b/i;
-
-        const isHiring = hiringPatterns.test(text) && !personalPatterns.test(text);
         const hasGolang = golangPatterns.test(text);
         const passesLevel = !shouldRejectForLevel(text);
+        const socialSource = source.includes('threads') || source.includes('twitter') || source.includes('facebook');
+        const isHiring = socialSource ? looksLikeSocialHiringPost(text) : true;
 
         let score = 3;
         if (isHiring) score += 3;
@@ -75,9 +72,9 @@ async function batchValidateJobsWithAI(jobs) {
         if (!passesLevel) score = Math.min(score, 3);
 
         return {
-            isValid: passesLevel && score >= 6,
+            isValid: passesLevel && hasGolang && score >= 6,
             score: Math.min(10, score),
-            reason: passesLevel ? 'regex' : 'regex-level-reject'
+            reason: !passesLevel ? 'regex-level-reject' : (isHiring ? 'regex' : 'regex-non-job-post')
         };
     };
 

@@ -5,7 +5,11 @@
 
 const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, idleBehavior } = require('../lib/stealth');
-const { analyzeLocation, hasExplicitNonPreferredLocation } = require('../lib/filters');
+const {
+    analyzeLocation,
+    hasExplicitNonPreferredLocation,
+    looksLikeSocialHiringPost
+} = require('../lib/filters');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -139,6 +143,10 @@ function isRelevantPost(text) {
     const strictRegex = /\b(golang|go\s?lang|go\s?dev|go\s?engineer|backend\s?go)\b/i;
 
     return strictRegex.test(t);
+}
+
+function isPotentialJobPost(text) {
+    return looksLikeSocialHiringPost(text);
 }
 
 /**
@@ -379,7 +387,12 @@ async function scrapeKeyword(page, keyword, reporter) {
                     continue;
                 }
 
-                // 2. Dynamic Date Check (Last 2 Months)
+                // 2. Threads search is noisy; require explicit hiring intent.
+                if (!isPotentialJobPost(textRaw)) {
+                    continue;
+                }
+
+                // 3. Dynamic Date Check (Last 2 Months)
                 // If timestamp is known (non-zero), validate it.
                 if (post.timestamp > 0) {
                     const postTimeMs = post.timestamp * 1000;
@@ -496,7 +509,9 @@ async function isThreadsAuthRequired(page) {
  */
 async function scrapeThreadsParallel(context, reporter) {
     console.log('🧵 Starting Parallel Threads Scraping...');
-    const keywords = ['golang'];
+    const keywords = CONFIG.socialSearchKeywords?.length > 0
+        ? CONFIG.socialSearchKeywords
+        : CONFIG.keywords;
 
     const results = await Promise.all(keywords.map(async (keyword) => {
         let page = null;
@@ -511,7 +526,7 @@ async function scrapeThreadsParallel(context, reporter) {
         }
     }));
 
-    const allJobs = results.flat();
+    const allJobs = results.flatMap(result => Array.isArray(result) ? result : (result?.jobs || []));
     const uniqueJobs = [...new Map(allJobs.map(j => [j.url, j])).values()];
 
     console.log(`\n✅ [Parallel] Finished. Found ${uniqueJobs.length} unique jobs total.`);
@@ -547,7 +562,9 @@ async function scrapeThreads(page, reporter, customKeywords = null) {
         await screenshotDebugger.captureError(page, 'threads', e);
     }
 
-    const defaultKeywords = ['golang'];
+    const defaultKeywords = CONFIG.socialSearchKeywords?.length > 0
+        ? CONFIG.socialSearchKeywords
+        : CONFIG.keywords;
     const keywords = customKeywords || defaultKeywords;
 
     const allJobs = [];
@@ -594,6 +611,7 @@ module.exports = {
     scrapeThreads,
     scrapeThreadsParallel,
     __private: {
+        isPotentialJobPost,
         extractSalary,
         extractTechStack,
         extractLocationSignal,
