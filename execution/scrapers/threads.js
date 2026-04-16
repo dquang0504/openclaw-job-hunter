@@ -7,9 +7,11 @@ const CONFIG = require('../config');
 const { randomDelay, humanScroll, mouseJiggle, idleBehavior } = require('../lib/stealth');
 const {
     analyzeLocation,
+    hasRoleSignal,
     hasExplicitNonPreferredLocation,
     looksLikeSocialHiringPost
 } = require('../lib/filters');
+const { classifySocialHiringPost } = require('../lib/local-social-classifier');
 const ScreenshotDebugger = require('../lib/screenshot');
 
 /**
@@ -146,7 +148,13 @@ function isRelevantPost(text) {
 }
 
 function isPotentialJobPost(text) {
-    return looksLikeSocialHiringPost(text);
+    const heuristicHiring = looksLikeSocialHiringPost(text);
+    if (heuristicHiring) {
+        return true;
+    }
+
+    const localResult = classifySocialHiringPost(text);
+    return localResult.isHiring && localResult.confidence >= 0.72 && hasRoleSignal(text);
 }
 
 /**

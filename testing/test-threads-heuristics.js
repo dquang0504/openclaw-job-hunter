@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { looksLikeSocialHiringPost } = require('../execution/lib/filters');
 const { __private } = require('../execution/scrapers/threads');
+const { classifySocialHiringPost } = require('../execution/lib/local-social-classifier');
 
 function run() {
     const realJobPost = `
@@ -12,6 +13,7 @@ function run() {
 
     const noisyPost = 'SwiftUI x golang my pick';
     const candidatePost = 'Open to work Golang backend developer intern, here is my CV';
+    const weirdButRealPost = 'Team minh can them 1 ban Go backend intern, CV inbox giup minh.';
 
     assert.equal(looksLikeSocialHiringPost(realJobPost), true, 'expected real hiring post to pass');
     assert.equal(__private.isPotentialJobPost(realJobPost), true, 'threads job heuristic should pass real hiring post');
@@ -20,6 +22,8 @@ function run() {
     assert.equal(__private.isPotentialJobPost(noisyPost), false, 'threads job heuristic should reject noisy post');
 
     assert.equal(looksLikeSocialHiringPost(candidatePost), false, 'expected candidate-seeking post to fail');
+    assert.equal(classifySocialHiringPost(weirdButRealPost).isHiring, true, 'local classifier should recognize non-template hiring post');
+    assert.equal(__private.isPotentialJobPost(weirdButRealPost), true, 'threads gate should allow non-template hiring post');
 
     console.log('✅ Threads heuristics test passed');
 }

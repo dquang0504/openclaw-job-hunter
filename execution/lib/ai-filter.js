@@ -8,7 +8,8 @@
 
 const Groq = require('groq-sdk');
 const CONFIG = require('../config');
-const { looksLikeSocialHiringPost, shouldRejectForLevel } = require('./filters');
+const { hasRoleSignal, looksLikeSocialHiringPost, shouldRejectForLevel } = require('./filters');
+const { classifySocialHiringPost } = require('./local-social-classifier');
 
 // Initialize Groq if API key available
 const groqApiKey = process.env.GROQ_API_KEY;
@@ -63,18 +64,30 @@ async function batchValidateJobsWithAI(jobs) {
         const hasGolang = golangPatterns.test(text);
         const passesLevel = !shouldRejectForLevel(text);
         const socialSource = source.includes('threads') || source.includes('twitter') || source.includes('facebook');
-        const isHiring = socialSource ? looksLikeSocialHiringPost(text) : true;
+        const heuristicHiring = socialSource ? looksLikeSocialHiringPost(text) : true;
+        const localResult = socialSource ? classifySocialHiringPost(text) : null;
+        const localHiring = socialSource
+            ? (localResult.isHiring && localResult.confidence >= 0.72 && hasRoleSignal(text))
+            : true;
+        const isHiring = socialSource ? (heuristicHiring || localHiring) : true;
 
         let score = 3;
         if (isHiring) score += 3;
         if (hasGolang) score += 3;
         if (isHiring && hasGolang) score = 8;
         if (!passesLevel) score = Math.min(score, 3);
+        if (socialSource && localResult && !isHiring) {
+            score = Math.min(score, 4);
+        }
 
         return {
             isValid: passesLevel && hasGolang && score >= 6,
             score: Math.min(10, score),
-            reason: !passesLevel ? 'regex-level-reject' : (isHiring ? 'regex' : 'regex-non-job-post')
+            reason: !passesLevel
+                ? 'regex-level-reject'
+                : (isHiring
+                    ? (heuristicHiring ? 'regex' : 'local-social-model')
+                    : 'regex-non-job-post')
         };
     };
 

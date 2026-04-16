@@ -18,45 +18,105 @@ const fs = require('fs');
 
 const site = process.argv[2] || null;       // Tên site (để load cookies)
 const startUrl = process.argv[3] || null;   // URL muốn mở (optional)
+const browserChannel = process.env.DEBUG_BROWSER_CHANNEL || 'chrome';
+const userDataDir = process.env.DEBUG_BROWSER_PROFILE_DIR
+    || path.join(__dirname, '.tmp', 'debug-browser-profile', site || 'default');
+
+function sanitizeCookies(cookies = []) {
+    return cookies.map(cookie => {
+        const nextCookie = {
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path || '/',
+            secure: Boolean(cookie.secure),
+            httpOnly: Boolean(cookie.httpOnly)
+        };
+
+        const expires = Number(cookie.expires ?? cookie.expirationDate);
+        if (Number.isFinite(expires) && expires > 0) {
+            nextCookie.expires = expires;
+        }
+
+        nextCookie.sameSite = cookie.sameSite;
+        if (nextCookie.sameSite === 'no_restriction' || nextCookie.sameSite === 'unspecified') {
+            nextCookie.sameSite = 'None';
+        }
+        if (!['Strict', 'Lax', 'None'].includes(nextCookie.sameSite)) {
+            delete nextCookie.sameSite;
+        }
+
+        return nextCookie;
+    });
+}
 
 async function main() {
     console.log('🚀 Launching Debug Browser...');
     if (site) console.log(`   Site profile: ${site}`);
     if (startUrl) console.log(`   Start URL: ${startUrl}`);
+    console.log(`   Browser channel: ${browserChannel}`);
+    console.log(`   User data dir: ${userDataDir}`);
     console.log('');
 
-    const browser = await chromium.launch({
-        headless: false,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-infobars',
-            '--disable-dev-shm-usage',
-            '--disable-extensions',
-            '--start-maximized',
-            '--lang=vi-VN,vi'
-        ]
-    });
+    fs.mkdirSync(userDataDir, { recursive: true });
 
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        viewport: null, // Dùng kích thước cửa sổ thật
-        locale: 'vi-VN',
-        timezoneId: 'Asia/Ho_Chi_Minh',
-        permissions: ['geolocation'],
-        geolocation: { latitude: 10.7769, longitude: 106.7009 },
-        javaScriptEnabled: true,
-        extraHTTPHeaders: {
-            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-            'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"'
-            // NOTE: Không set 'Upgrade-Insecure-Requests' thủ công!
-            // Browser tự quản lý header này. Nếu set thủ công sẽ bị gửi
-            // trong CORS preflight → CDN Instagram block → trang trắng.
-        }
-    });
+    let context;
+    try {
+        context = await chromium.launchPersistentContext(userDataDir, {
+            channel: browserChannel,
+            headless: false,
+            viewport: null,
+            locale: 'vi-VN',
+            timezoneId: 'Asia/Ho_Chi_Minh',
+            permissions: ['geolocation'],
+            geolocation: { latitude: 10.7769, longitude: 106.7009 },
+            javaScriptEnabled: true,
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            extraHTTPHeaders: {
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+                'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"'
+            },
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars',
+                '--disable-dev-shm-usage',
+                '--start-maximized',
+                '--lang=vi-VN,vi'
+            ]
+        });
+    } catch (error) {
+        console.warn(`⚠️  Failed to launch channel "${browserChannel}": ${error.message.split('\n')[0]}`);
+        console.warn('⚠️  Falling back to bundled Chromium. Extensions from Chrome Web Store may not work there.\n');
+        context = await chromium.launchPersistentContext(userDataDir, {
+            headless: false,
+            viewport: null,
+            locale: 'vi-VN',
+            timezoneId: 'Asia/Ho_Chi_Minh',
+            permissions: ['geolocation'],
+            geolocation: { latitude: 10.7769, longitude: 106.7009 },
+            javaScriptEnabled: true,
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            extraHTTPHeaders: {
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+                'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"'
+            },
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars',
+                '--disable-dev-shm-usage',
+                '--start-maximized',
+                '--lang=vi-VN,vi'
+            ]
+        });
+    }
 
     // Load cookies nếu có
     if (site) {
@@ -65,14 +125,7 @@ async function main() {
             try {
                 const raw = JSON.parse(fs.readFileSync(cookiePath, 'utf-8'));
                 const cookies = Array.isArray(raw) ? raw : (raw.cookies || []);
-
-                // Sanitize sameSite cho Playwright
-                const clean = cookies.map(c => {
-                    if (!['Strict', 'Lax', 'None'].includes(c.sameSite)) {
-                        c.sameSite = 'Lax';
-                    }
-                    return c;
-                });
+                const clean = sanitizeCookies(cookies);
 
                 await context.addCookies(clean);
                 console.log(`🍪 Loaded ${clean.length} cookies from cookies-${site}.json`);
@@ -85,7 +138,7 @@ async function main() {
         }
     }
 
-    const page = await context.newPage();
+    const page = context.pages()[0] || await context.newPage();
 
     // Navigate nếu có URL, không thì để trang trắng
     if (startUrl) {
