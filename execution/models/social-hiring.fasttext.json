@@ -1,0 +1,68 @@
+{
+  "createdAt": "2026-04-19T02:30:44.217329+00:00",
+  "dataset": {
+    "total_samples": 113,
+    "label_counts": {
+      "hiring": 28,
+      "non_hiring": 85
+    },
+    "source_counts": {
+      "seed": 30,
+      "manual": 36,
+      "threads_log_bootstrap": 47
+    }
+  },
+  "train": {
+    "total_samples": 90,
+    "label_counts": {
+      "non_hiring": 68,
+      "hiring": 22
+    },
+    "source_counts": {
+      "threads_log_bootstrap": 35,
+      "manual": 29,
+      "seed": 26
+    }
+  },
+  "valid": {
+    "total_samples": 23,
+    "label_counts": {
+      "non_hiring": 17,
+      "hiring": 6
+    },
+    "source_counts": {
+      "threads_log_bootstrap": 12,
+      "seed": 4,
+      "manual": 7
+    }
+  },
+  "metrics": {
+    "accuracy": 0.9130434782608695,
+    "total": 23,
+    "hiring": {
+      "precision": 0.8333333333333334,
+      "recall": 0.8333333333333334,
+      "f1": 0.8333333333333334,
+      "tp": 5,
+      "fp": 1,
+      "fn": 1
+    },
+    "non_hiring": {
+      "precision": 0.9411764705882353,
+      "recall": 0.9411764705882353,
+      "f1": 0.9411764705882353,
+      "tp": 16,
+      "fp": 1,
+      "fn": 1
+    }
+  },
+  "artifacts": {
+    "bin": "python-model-trainer/artifacts/social-hiring.bin",
+    "ftz": "execution/models/social-hiring.ftz"
+  },
+  "training": {
+    "autotuneValidationFile": "python-model-trainer/build/datasets/social-hiring/valid.txt",
+    "autotuneDurationSeconds": 120,
+    "seed": 42
+  }
+}

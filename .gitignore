@@ -27,6 +27,13 @@ Thumbs.db
 *.swp
 *.swo
 
+# Python trainer
+python-model-trainer/.venv/
+python-model-trainer/build/
+python-model-trainer/artifacts/
+python-model-trainer/src/*.egg-info/
+python-model-trainer/src/**/__pycache__/
+
 # Playwright
 playwright-report/
 test-results/
