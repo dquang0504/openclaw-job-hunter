@@ -63,34 +63,40 @@ async function resolveFacebookPostDate(detailPage, fallbackTime) {
     return fallbackTime;
 }
 
-async function waitForFacebookDetailReady(detailPage, options = {}) {
+function analyzeTimestampSelection(value) {
+    const clean = `${value || ''}`.replace(/\s+/g, ' ').trim();
+    const normalized = normalizeText(clean);
+    const extractedCandidate = extractDateCandidate(clean);
+    const hasMonthToken = /\bthang\b/.test(normalized);
+    const hasYear = /\b20\d{2}\b/.test(normalized);
+    const hasTime = /\b\d{1,2}:\d{1,2}(?::\d{1,2})?\b/.test(normalized) || /\bluc\b/.test(normalized);
+    const hasRelativeTime = /\b(hom nay|hom qua|vua xong|recent|today|yesterday|ago|truoc)\b/.test(normalized);
+    const looksLikeWeekday = /^(thu\s*)?(hai|ba|tu|nam|sau|bay|nhat)\b|^(hai|ba|tu|nam|sau|bay|nhat),/.test(normalized);
+    const temporalSignalCount = [hasMonthToken, hasYear, hasTime, hasRelativeTime, looksLikeWeekday].filter(Boolean).length;
+    const isDateLike = Boolean(extractedCandidate) || temporalSignalCount >= 2;
+    const looksLikeContent = /\b(tuyen|tuyen dung|backend|frontend|fullstack|developer|engineer|viettel|hn|hcm|remote|junior|senior|lead)\b/.test(normalized);
+    const clearlyInvalid = !isDateLike && (looksLikeContent || /[*#@]/.test(clean) || !/\d/.test(clean));
+
+    return {
+        clean,
+        extractedCandidate,
+        isDateLike,
+        clearlyInvalid
+    };
+}
+
+async function waitForFacebookDetailReady(detailPage) {
     const detailSignals = [
         'div[data-ad-rendering-role="story_message"]',
         'div[role="article"]',
         'div[role="main"]'
     ];
-    const detailReadyTimeoutMs = options.detailReadyTimeoutMs || 5000;
-    const detailReadyPollMs = options.detailReadyPollMs || 500;
-    const storyMessageFastPathMinChars = options.storyMessageFastPathMinChars || 120;
-    const storyMessageFastPathSettleMs = options.storyMessageFastPathSettleMs || 350;
-    const storyMessageLocator = detailPage.locator('div[data-ad-rendering-role="story_message"]').first();
-
-    if (await storyMessageLocator.count().catch(() => 0) > 0) {
-        const storyText = (await storyMessageLocator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-        if (storyText.length >= storyMessageFastPathMinChars) {
-            await detailPage.waitForTimeout(storyMessageFastPathSettleMs);
-            const settledText = (await storyMessageLocator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-            if (settledText.length >= storyMessageFastPathMinChars) {
-                return true;
-            }
-        }
-    }
 
     const start = Date.now();
     let lastSnapshot = '';
     let stableReads = 0;
 
-    while (Date.now() - start < detailReadyTimeoutMs) {
+    while (Date.now() - start < 8000) {
         for (const selector of detailSignals) {
             const locator = detailPage.locator(selector).first();
             if (await locator.count() === 0) continue;
@@ -110,7 +116,7 @@ async function waitForFacebookDetailReady(detailPage, options = {}) {
             }
         }
 
-        await detailPage.waitForTimeout(detailReadyPollMs);
+        await detailPage.waitForTimeout(750);
     }
 
     return false;
@@ -140,10 +146,6 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     const preOpenPostMaxMs = options.preOpenPostMaxMs || 2800;
     const detailReadMinMs = options.detailReadMinMs || 1500;
     const detailReadMaxMs = options.detailReadMaxMs || 3200;
-    const detailReadyTimeoutMs = options.detailReadyTimeoutMs || 5000;
-    const detailReadyPollMs = options.detailReadyPollMs || 500;
-    const storyMessageFastPathMinChars = options.storyMessageFastPathMinChars || 120;
-    const storyMessageFastPathSettleMs = options.storyMessageFastPathSettleMs || 350;
     const groupCooldownMinMs = options.groupCooldownMinMs || 4000;
     const groupCooldownMaxMs = options.groupCooldownMaxMs || 8000;
     const warmupMinMs = options.warmupMinMs || 4000;
@@ -300,11 +302,27 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                                 // 3. Analyze Selection
                                 if (selectedText && selectedText.trim().length > 3) {
                                     let cleanT = selectedText.trim();
+                                    const selectionInfo = analyzeTimestampSelection(cleanT);
+                                    cleanT = selectionInfo.clean;
 
                                     // Safety Check: Garbage or too long
                                     const wordCount = cleanT.split(/\s+/).length;
                                     if (cleanT.length > 250 || wordCount > 35 || cleanT.includes('\n') || cleanT.includes('\r')) {
                                         console.log(`      ⚠️ Timestamp likely garbage (${cleanT.length} chars). Fallback to 'Recent'.`);
+                                        jobTime = 'Recent';
+                                        satisfied = true;
+                                        break;
+                                    }
+
+                                    if (selectionInfo.clearlyInvalid) {
+                                        console.log(`      ⚠️ Timestamp selection invalid ("${cleanT}"). Fallback to 'Recent'.`);
+                                        jobTime = 'Recent';
+                                        satisfied = true;
+                                        break;
+                                    }
+
+                                    if (!selectionInfo.isDateLike) {
+                                        console.log(`      ⚠️ Timestamp selection not date-like ("${cleanT}"). Stop refining.`);
                                         jobTime = 'Recent';
                                         satisfied = true;
                                         break;
@@ -346,7 +364,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                                     }
 
                                     // If good, save and exit loop
-                                    jobTime = cleanT;
+                                    jobTime = selectionInfo.extractedCandidate || cleanT;
                                     satisfied = true;
                                     console.log(`      🕒 Extracted Time: "${jobTime}"`);
                                 } else {
@@ -470,12 +488,7 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                         }
                     }
 
-                    const detailSettled = await waitForFacebookDetailReady(detailPage, {
-                        detailReadyTimeoutMs,
-                        detailReadyPollMs,
-                        storyMessageFastPathMinChars,
-                        storyMessageFastPathSettleMs
-                    });
+                    const detailSettled = await waitForFacebookDetailReady(detailPage);
                     if (!detailSettled) {
                         console.log('      ⚠️ Detail content did not fully stabilize before extraction.');
                     } else {
