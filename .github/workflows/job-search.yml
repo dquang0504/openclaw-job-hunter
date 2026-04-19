@@ -38,10 +38,16 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       
       - name: Install dependencies
         run: |
           npm install --no-audit
+          python3 -m pip install -r execution/python/requirements.txt
           npx playwright install chromium --with-deps
       
       - name: Create directories

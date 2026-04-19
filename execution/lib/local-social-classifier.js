@@ -3,11 +3,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const seeds = require('../models/social-hiring-seeds');
 
-const TRAINER_ROOT = process.env.SOCIAL_HIRING_TRAINER_ROOT
-    || '/home/williamdang/Go Test Projects/python-model-trainer';
-const PYTHON_BIN = process.env.SOCIAL_HIRING_PYTHON
-    || path.join(TRAINER_ROOT, '.venv', 'bin', 'python');
-const PREDICT_MODULE = 'social_hiring_trainer.predict';
+const OPENCLAW_ROOT = path.join(__dirname, '..', '..');
+const PYTHON_BIN = process.env.SOCIAL_HIRING_PYTHON || 'python3';
+const PREDICT_SCRIPT = process.env.SOCIAL_HIRING_PREDICT_SCRIPT
+    || path.join(OPENCLAW_ROOT, 'execution', 'python', 'social_hiring_predict.py');
 
 let fastTextProbe = null;
 
@@ -104,7 +103,7 @@ function sigmoid(x) {
 function hasFastTextRuntime() {
     if (fastTextProbe !== null) return fastTextProbe;
 
-    fastTextProbe = fs.existsSync(PYTHON_BIN);
+    fastTextProbe = fs.existsSync(PREDICT_SCRIPT);
     return fastTextProbe;
 }
 
@@ -141,12 +140,12 @@ function classifyWithFastText(text) {
     try {
         const raw = execFileSync(
             PYTHON_BIN,
-            ['-m', PREDICT_MODULE],
+            [PREDICT_SCRIPT],
             {
-                cwd: TRAINER_ROOT,
+                cwd: OPENCLAW_ROOT,
                 env: {
                     ...process.env,
-                    OPENCLAW_ROOT: path.join(__dirname, '..', '..')
+                    OPENCLAW_ROOT
                 },
                 input: JSON.stringify({ text }),
                 encoding: 'utf8',
@@ -168,7 +167,6 @@ function classifyWithFastText(text) {
             source: 'fasttext'
         };
     } catch (error) {
-        fastTextProbe = false;
         return null;
     }
 }
