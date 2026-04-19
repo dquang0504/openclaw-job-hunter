@@ -9,8 +9,18 @@ async function runFacebookTask({ page, reporter, runState, runPolicy }) {
     let status = 'success';
     let scannedCount = 0;
     let scannedGroups = 0;
+    const startedAt = Date.now();
+    const maxRuntimeMs = facebookPolicy.maxRuntimeMs || runPolicy.getTimeoutMs('facebook');
+    const shutdownBufferMs = facebookPolicy.shutdownBufferMs || 20_000;
 
     for (const groupUrl of groups) {
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs >= Math.max(0, maxRuntimeMs - shutdownBufferMs)) {
+            warnings.push(`Stopped early after ${Math.round(elapsedMs / 1000)}s to stay within Facebook runtime budget`);
+            if (status === 'success') status = 'partial';
+            break;
+        }
+
         if (facebookPolicy.stopAfterTotalRawJobs && aggregatedJobs.length >= facebookPolicy.stopAfterTotalRawJobs) {
             warnings.push(`Stopped early after reaching ${facebookPolicy.stopAfterTotalRawJobs} raw jobs across groups`);
             break;
@@ -19,6 +29,7 @@ async function runFacebookTask({ page, reporter, runState, runPolicy }) {
         scannedGroups += 1;
         const result = await scrapeFacebook(page, reporter, runState.seenJobs, {
             ...facebookPolicy,
+            warmupOnStart: scannedGroups === 1,
             groups: [groupUrl]
         });
 

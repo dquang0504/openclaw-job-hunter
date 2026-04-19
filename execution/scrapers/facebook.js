@@ -126,28 +126,34 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     const detailReadMaxMs = options.detailReadMaxMs || 3200;
     const groupCooldownMinMs = options.groupCooldownMinMs || 8000;
     const groupCooldownMaxMs = options.groupCooldownMaxMs || 15000;
+    const warmupMinMs = options.warmupMinMs || 4000;
+    const warmupMaxMs = options.warmupMaxMs || 8000;
+    const warmupOnStart = options.warmupOnStart !== false;
     const groupsToScan = options.groups || CONFIG.facebookGroups;
     let authIssueDetected = false;
     let scannedPosts = 0;
     const warnings = [];
 
     // --- WARM UP PHASE ---
-    try {
-        console.log('🏠 Navigating to Facebook Home for warm-up...');
-        await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
+    if (warmupOnStart) {
+        try {
+            console.log('🏠 Navigating to Facebook Home for warm-up...');
+            await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
 
-        // Randomize warm-up duration (4-8s)
-        const warmUpDuration = 4000 + Math.random() * 4000;
-        const startTime = Date.now();
-        console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
+            const warmUpDuration = warmupMinMs + Math.random() * Math.max(0, warmupMaxMs - warmupMinMs);
+            const startTime = Date.now();
+            console.log(`⏳ Warming up for ${(warmUpDuration / 1000).toFixed(1)}s with random behaviors...`);
 
-        while (Date.now() - startTime < warmUpDuration) {
-            await mouseJiggle(page);
-            await page.waitForTimeout(1000 + Math.random() * 1000);
+            while (Date.now() - startTime < warmUpDuration) {
+                await mouseJiggle(page);
+                await page.waitForTimeout(1000 + Math.random() * 1000);
+            }
+            console.log('✅ Warm-up complete. Starting scraping...');
+        } catch (e) {
+            console.log('⚠️ Warm-up failed (non-critical):', e.message);
         }
-        console.log('✅ Warm-up complete. Starting scraping...');
-    } catch (e) {
-        console.log('⚠️ Warm-up failed (non-critical):', e.message);
+    } else {
+        console.log('⏭️ Reusing warmed Facebook session for next group.');
     }
     // --- END WARM UP ---
 
