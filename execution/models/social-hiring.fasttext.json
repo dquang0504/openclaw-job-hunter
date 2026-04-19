@@ -1,67 +1,70 @@
 {
-  "createdAt": "2026-04-19T02:30:44.217329+00:00",
+  "createdAt": "2026-04-19T03:07:11.469242+00:00",
   "dataset": {
-    "total_samples": 113,
+    "total_samples": 127,
     "label_counts": {
-      "hiring": 28,
-      "non_hiring": 85
+      "hiring": 34,
+      "non_hiring": 93
     },
     "source_counts": {
       "seed": 30,
       "manual": 36,
+      "web_pattern": 14,
       "threads_log_bootstrap": 47
     }
   },
   "train": {
-    "total_samples": 90,
+    "total_samples": 101,
     "label_counts": {
-      "non_hiring": 68,
-      "hiring": 22
+      "non_hiring": 74,
+      "hiring": 27
     },
     "source_counts": {
-      "threads_log_bootstrap": 35,
-      "manual": 29,
-      "seed": 26
+      "seed": 24,
+      "manual": 26,
+      "threads_log_bootstrap": 39,
+      "web_pattern": 12
     }
   },
   "valid": {
-    "total_samples": 23,
+    "total_samples": 26,
     "label_counts": {
-      "non_hiring": 17,
-      "hiring": 6
+      "non_hiring": 19,
+      "hiring": 7
     },
     "source_counts": {
-      "threads_log_bootstrap": 12,
-      "seed": 4,
-      "manual": 7
+      "threads_log_bootstrap": 8,
+      "manual": 10,
+      "seed": 6,
+      "web_pattern": 2
     }
   },
   "metrics": {
-    "accuracy": 0.9130434782608695,
-    "total": 23,
+    "accuracy": 1.0,
+    "total": 26,
     "hiring": {
-      "precision": 0.8333333333333334,
-      "recall": 0.8333333333333334,
-      "f1": 0.8333333333333334,
-      "tp": 5,
-      "fp": 1,
-      "fn": 1
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 7,
+      "fp": 0,
+      "fn": 0
     },
     "non_hiring": {
-      "precision": 0.9411764705882353,
-      "recall": 0.9411764705882353,
-      "f1": 0.9411764705882353,
-      "tp": 16,
-      "fp": 1,
-      "fn": 1
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 19,
+      "fp": 0,
+      "fn": 0
     }
   },
   "artifacts": {
-    "bin": "python-model-trainer/artifacts/social-hiring.bin",
+    "bin": "/home/williamdang/Go Test Projects/python-model-trainer/artifacts/social-hiring.bin",
     "ftz": "execution/models/social-hiring.ftz"
   },
   "training": {
-    "autotuneValidationFile": "python-model-trainer/build/datasets/social-hiring/valid.txt",
+    "autotuneValidationFile": "/home/williamdang/Go Test Projects/python-model-trainer/build/datasets/social-hiring/valid.txt",
     "autotuneDurationSeconds": 120,
     "seed": 42
   }

@@ -1,4 +1,15 @@
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const seeds = require('../models/social-hiring-seeds');
+
+const TRAINER_ROOT = process.env.SOCIAL_HIRING_TRAINER_ROOT
+    || '/home/williamdang/Go Test Projects/python-model-trainer';
+const PYTHON_BIN = process.env.SOCIAL_HIRING_PYTHON
+    || path.join(TRAINER_ROOT, '.venv', 'bin', 'python');
+const PREDICT_MODULE = 'social_hiring_trainer.predict';
+
+let fastTextProbe = null;
 
 function normalize(text) {
     return (text || '')
@@ -90,14 +101,22 @@ function sigmoid(x) {
     return 1 / (1 + Math.exp(-x));
 }
 
-function classifySocialHiringPost(text) {
+function hasFastTextRuntime() {
+    if (fastTextProbe !== null) return fastTextProbe;
+
+    fastTextProbe = fs.existsSync(PYTHON_BIN);
+    return fastTextProbe;
+}
+
+function classifyWithSeedModel(text) {
     const features = extractFeatures(text);
     if (features.length === 0) {
         return {
             label: 'non_hiring',
             isHiring: false,
             confidence: 0.5,
-            margin: 0
+            margin: 0,
+            source: 'seed'
         };
     }
 
@@ -111,8 +130,51 @@ function classifySocialHiringPost(text) {
         label: isHiring ? 'hiring' : 'non_hiring',
         isHiring,
         confidence,
-        margin
+        margin,
+        source: 'seed'
     };
+}
+
+function classifyWithFastText(text) {
+    if (!hasFastTextRuntime()) return null;
+
+    try {
+        const raw = execFileSync(
+            PYTHON_BIN,
+            ['-m', PREDICT_MODULE],
+            {
+                cwd: TRAINER_ROOT,
+                env: {
+                    ...process.env,
+                    OPENCLAW_ROOT: path.join(__dirname, '..', '..')
+                },
+                input: JSON.stringify({ text }),
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'ignore'],
+                timeout: 2500,
+                maxBuffer: 1024 * 1024
+            }
+        ).trim();
+
+        if (!raw) return null;
+        const result = JSON.parse(raw);
+        if (!result || !result.label) return null;
+
+        return {
+            label: result.label,
+            isHiring: result.label === 'hiring',
+            confidence: Number(result.confidence) || 0.5,
+            margin: Number(result.margin) || 0,
+            source: 'fasttext'
+        };
+    } catch (error) {
+        fastTextProbe = false;
+        return null;
+    }
+}
+
+function classifySocialHiringPost(text) {
+    return classifyWithFastText(text) || classifyWithSeedModel(text);
 }
 
 module.exports = {
