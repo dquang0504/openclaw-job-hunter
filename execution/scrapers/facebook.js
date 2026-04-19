@@ -63,18 +63,34 @@ async function resolveFacebookPostDate(detailPage, fallbackTime) {
     return fallbackTime;
 }
 
-async function waitForFacebookDetailReady(detailPage) {
+async function waitForFacebookDetailReady(detailPage, options = {}) {
     const detailSignals = [
         'div[data-ad-rendering-role="story_message"]',
         'div[role="article"]',
         'div[role="main"]'
     ];
+    const detailReadyTimeoutMs = options.detailReadyTimeoutMs || 5000;
+    const detailReadyPollMs = options.detailReadyPollMs || 500;
+    const storyMessageFastPathMinChars = options.storyMessageFastPathMinChars || 120;
+    const storyMessageFastPathSettleMs = options.storyMessageFastPathSettleMs || 350;
+    const storyMessageLocator = detailPage.locator('div[data-ad-rendering-role="story_message"]').first();
+
+    if (await storyMessageLocator.count().catch(() => 0) > 0) {
+        const storyText = (await storyMessageLocator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+        if (storyText.length >= storyMessageFastPathMinChars) {
+            await detailPage.waitForTimeout(storyMessageFastPathSettleMs);
+            const settledText = (await storyMessageLocator.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+            if (settledText.length >= storyMessageFastPathMinChars) {
+                return true;
+            }
+        }
+    }
 
     const start = Date.now();
     let lastSnapshot = '';
     let stableReads = 0;
 
-    while (Date.now() - start < 8000) {
+    while (Date.now() - start < detailReadyTimeoutMs) {
         for (const selector of detailSignals) {
             const locator = detailPage.locator(selector).first();
             if (await locator.count() === 0) continue;
@@ -94,7 +110,7 @@ async function waitForFacebookDetailReady(detailPage) {
             }
         }
 
-        await detailPage.waitForTimeout(750);
+        await detailPage.waitForTimeout(detailReadyPollMs);
     }
 
     return false;
@@ -124,8 +140,12 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
     const preOpenPostMaxMs = options.preOpenPostMaxMs || 2800;
     const detailReadMinMs = options.detailReadMinMs || 1500;
     const detailReadMaxMs = options.detailReadMaxMs || 3200;
-    const groupCooldownMinMs = options.groupCooldownMinMs || 8000;
-    const groupCooldownMaxMs = options.groupCooldownMaxMs || 15000;
+    const detailReadyTimeoutMs = options.detailReadyTimeoutMs || 5000;
+    const detailReadyPollMs = options.detailReadyPollMs || 500;
+    const storyMessageFastPathMinChars = options.storyMessageFastPathMinChars || 120;
+    const storyMessageFastPathSettleMs = options.storyMessageFastPathSettleMs || 350;
+    const groupCooldownMinMs = options.groupCooldownMinMs || 4000;
+    const groupCooldownMaxMs = options.groupCooldownMaxMs || 8000;
     const warmupMinMs = options.warmupMinMs || 4000;
     const warmupMaxMs = options.warmupMaxMs || 8000;
     const warmupOnStart = options.warmupOnStart !== false;
@@ -450,7 +470,12 @@ async function scrapeFacebook(page, reporter, seenJobs = new Set(), options = {}
                         }
                     }
 
-                    const detailSettled = await waitForFacebookDetailReady(detailPage);
+                    const detailSettled = await waitForFacebookDetailReady(detailPage, {
+                        detailReadyTimeoutMs,
+                        detailReadyPollMs,
+                        storyMessageFastPathMinChars,
+                        storyMessageFastPathSettleMs
+                    });
                     if (!detailSettled) {
                         console.log('      ⚠️ Detail content did not fully stabilize before extraction.');
                     } else {
